@@ -101,8 +101,8 @@ namespace gspro_r10.bluetooth
         BaseLogger.LogDebug($"Reading battery life");
       IGattService1 batteryService = Device.GetServiceAsync(BATTERY_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
       GattCharacteristic batteryCharacteristic = (GattCharacteristic)batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       batteryCharacteristic.Value += (sender, args) => { Battery = args.Value[0]; return Task.CompletedTask; };
-      batteryCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));
       if (DebugLogging)
         BaseLogger.LogDebug($"Setting up device interface service");
       IGattService1 deviceInterfaceService = Device.GetServiceAsync(DEVICE_INTERFACE_SERVICE).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
@@ -112,7 +112,7 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting reader");
       GattCharacteristic deviceInterfaceNotifier = (GattCharacteristic)deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      deviceInterfaceNotifier.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));
+      // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       deviceInterfaceNotifier.Value += (sender, args) => { ReadBytes(args.Value); return Task.CompletedTask; };
       bool handshakeSuccess = PerformHandShake();
       if (!handshakeSuccess)

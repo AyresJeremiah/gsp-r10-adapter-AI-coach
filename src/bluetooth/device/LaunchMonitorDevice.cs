@@ -79,30 +79,19 @@ namespace gspro_r10.bluetooth
         BaseLogger.LogDebug("Subscribing to measurement service");
       IGattService1 measService = Device.GetServiceAsync(MEASUREMENT_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
       GattCharacteristic measCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      if (!measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30)))
-      {
-        BluetoothLogger.Error("Error subscribing to measurement characteristic");
-      }
+      // Subscribe once via StartNotifyAsync — no Value handler needed (data unused)
+      measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));
 
-      // Bytes that come after each shot. No idea how to parse these
-      measCharacteristic.Value += (sender, args) => Task.CompletedTask;
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to control service");
       GattCharacteristic controlPoint = (GattCharacteristic)measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      if (!controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30)))
-      {
-        BluetoothLogger.Error("Error subscribing to the control characteristic");
-      }
-      // Response to waiting device through controlPointInterface. Unused for now
-      controlPoint.Value += (sender, args) => Task.CompletedTask;
+      // Subscribe once via StartNotifyAsync — no Value handler needed (unused for now)
+      controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));
 
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to status service");
       GattCharacteristic statusCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      if (!statusCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30)))
-      {
-        BluetoothLogger.Error("Error subscribing to the status characteristic");
-      }
+      // Subscribe once via Value += (auto-subscribes internally)
       statusCharacteristic.Value += (sender, args) =>
       {
         bool isAwake = args.Value[1] == (byte)0;
