@@ -1,9 +1,12 @@
 using gspro_r10.OpenConnect;
-using InTheHand.Bluetooth;
+using Linux.Bluetooth;
+using Linux.Bluetooth.Extensions;
 using LaunchMonitor.Proto;
 using gspro_r10.bluetooth;
 using Microsoft.Extensions.Configuration;
 using System.Text;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace gspro_r10
 {
@@ -17,7 +20,7 @@ namespace gspro_r10
     public IConfigurationSection Configuration { get; }
     public int ReconnectInterval { get; }
     public LaunchMonitorDevice? LaunchMonitor { get; private set; }
-    public BluetoothDevice? Device { get; private set; }
+    public Device? Device { get; private set; }
 
     public BluetoothConnection(ConnectionManager connectionManager, IConfigurationSection configuration)
     {
@@ -28,49 +31,69 @@ namespace gspro_r10
 
     }
 
-    private void ConnectToDevice()
+    private async Task ConnectToDevice()
     {
-      string deviceName = Configuration["bluetoothDeviceName"] ?? "Approach R10";
-      Device = FindDevice(deviceName);
-      if (Device == null)
+      try
       {
-        BluetoothLogger.Error($"Could not find '{deviceName}' in list of paired devices.");
-        BluetoothLogger.Error("Device must be paired through computer bluetooth settings before running");
-        BluetoothLogger.Error("If device is paired, make sure name matches exactly what is set in 'bluetoothDeviceName' in settings.json");
-        return;
-      }
-
-      do
-      {
-        BluetoothLogger.Info($"Connecting to {Device.Name}: {Device.Id}");
-        Device.Gatt.ConnectAsync().Wait();
-
-        if (!Device.Gatt.IsConnected)
+        string deviceName = Configuration["bluetoothDeviceName"] ?? "Approach R10";
+        string? deviceAddress = Configuration["bluetoothDeviceAddress"];
+        Device = await FindDeviceAsync(deviceName, deviceAddress);
+        if (Device == null)
         {
-          BluetoothLogger.Info($"Could not connect to bluetooth device. Waiting {ReconnectInterval} seconds before trying again");
-          Thread.Sleep(TimeSpan.FromSeconds(ReconnectInterval));
+          BluetoothLogger.Error("Device must be paired through computer bluetooth settings before running");
+          if (!string.IsNullOrWhiteSpace(deviceAddress))
+            BluetoothLogger.Error($"If device is paired, make sure 'bluetoothDeviceAddress' in settings.json matches the device MAC exactly (e.g. 'DD:C1:97:75:9A:F6')");
+          else
+            BluetoothLogger.Error($"If device is paired, make sure 'bluetoothDeviceName' in settings.json matches exactly (currently: '{deviceName}')");
+          return;
         }
+
+        bool connected = false;
+        do
+        {
+          try
+          {
+            var dName = await Device.GetNameAsync();
+            BluetoothLogger.Info($"Connecting to {dName}: {Device.ObjectPath}");
+            await Device.ConnectAsync();
+            await Device.WaitForPropertyValueAsync("ServicesResolved", value: true, TimeSpan.FromSeconds(15));
+            connected = await Device.GetConnectedAsync();
+          }
+          catch (Exception ex)
+          {
+            BluetoothLogger.Error($"Connection attempt failed: {ex.Message}");
+            connected = false;
+          }
+
+          if (!connected)
+          {
+            BluetoothLogger.Info($"Could not connect to bluetooth device. Waiting {ReconnectInterval} seconds before trying again");
+            Thread.Sleep(TimeSpan.FromSeconds(ReconnectInterval));
+          }
+        }
+        while (!connected);
+
+        BluetoothLogger.Info($"Connected to Launch Monitor");
+        LaunchMonitor = SetupLaunchMonitor(Device);
+        Device.Disconnected += OnDeviceDisconnected;
       }
-      while (!Device.Gatt.IsConnected);
-
-      Device.Gatt.AutoConnect = true;
-
-      BluetoothLogger.Info($"Connected to Launch Monitor");
-      LaunchMonitor = SetupLaunchMonitor(Device);
-      Device.GattServerDisconnected += OnDeviceDisconnected;
+      catch (Exception e)
+      {
+        BluetoothLogger.Error($"Bluetooth connection error: {e}");
+      }
     }
 
-    private void OnDeviceDisconnected(object? sender, EventArgs args)
+    private Task OnDeviceDisconnected(Device sender, BlueZEventArgs args)
     {
       BluetoothLogger.Error("Lost bluetooth connection");
       if (Device != null)
-        Device.GattServerDisconnected -= OnDeviceDisconnected;
+        Device.Disconnected -= OnDeviceDisconnected;
       LaunchMonitor?.Dispose();
-
-      Task.Run(ConnectToDevice);
+      _ = Task.Run(ConnectToDevice);
+      return Task.CompletedTask;
     }
 
-    private LaunchMonitorDevice? SetupLaunchMonitor(BluetoothDevice device)
+    private LaunchMonitorDevice? SetupLaunchMonitor(Device device)
     {
       LaunchMonitorDevice lm = new LaunchMonitorDevice(device);
       lm.AutoWake = bool.Parse(Configuration["autoWake"] ?? "false");
@@ -118,7 +141,7 @@ namespace gspro_r10
       BluetoothLogger.Info($"Device Setup Complete: ");
       BluetoothLogger.Info($"   Model: {lm.Model}");
       BluetoothLogger.Info($"   Firmware: {lm.Firmware}");
-      BluetoothLogger.Info($"   Bluetooth ID: {lm.Device.Id}");
+      BluetoothLogger.Info($"   Bluetooth ID: {lm.Device.ObjectPath}");
       BluetoothLogger.Info($"   Battery: {lm.Battery}%");
       BluetoothLogger.Info($"   Current State: {lm.CurrentState}");
       BluetoothLogger.Info($"   Tilt: {lm.DeviceTilt}");
@@ -126,21 +149,68 @@ namespace gspro_r10
       return lm;
     }
 
-    private BluetoothDevice? FindDevice(string deviceName)
+    private async Task<Device?> FindDeviceAsync(string deviceName, string? deviceAddress)
     {
-      var pairedDevices = Bluetooth.GetPairedDevicesAsync().Result.ToList();
-      if (pairedDevices.Count == 0)
+      var adapters = await BlueZManager.GetAdaptersAsync();
+      if (adapters.Count == 0)
+      {
+        BluetoothLogger.Error("No bluetooth adapters found");
+        return null;
+      }
+
+      var adapter = adapters[0];
+      var devices = await adapter.GetDevicesAsync();
+
+      if (devices.Count == 0)
       {
         BluetoothLogger.Error("No paired bluetooth devices found on this computer");
         return null;
       }
 
-      BluetoothLogger.Info($"Found {pairedDevices.Count} paired bluetooth device(s): {string.Join(", ", pairedDevices.Select(d => $"'{d.Name}'"))}");
+      bool useAddress = !string.IsNullOrWhiteSpace(deviceAddress);
+      var deviceDescriptions = new List<string>();
+      Device? found = null;
 
-      foreach (BluetoothDevice pairedDev in pairedDevices)
-        if (pairedDev.Name == deviceName)
-          return pairedDev;
-      return null;
+      foreach (var device in devices)
+      {
+        try
+        {
+          string lastSegment = device.ObjectPath.ToString().Split('/').Last();
+          // BlueZ path format: /org/bluez/hci0/dev_DD_C1_97_75_9A_F6
+          string address = lastSegment.StartsWith("dev_")
+            ? lastSegment.Substring(4).Replace('_', ':')
+            : lastSegment.Replace('_', ':');
+          string? name = await device.GetNameAsync();
+          deviceDescriptions.Add($"'{name ?? "(unknown)"}' ({address})");
+
+          if (useAddress)
+          {
+            if (string.Equals(address, deviceAddress, StringComparison.OrdinalIgnoreCase))
+              found = device;
+          }
+          else
+          {
+            if (name == deviceName)
+              found = device;
+          }
+        }
+        catch
+        {
+          deviceDescriptions.Add("(unknown)");
+        }
+      }
+
+      BluetoothLogger.Info($"Found {devices.Count} bluetooth device(s): {string.Join(", ", deviceDescriptions)}");
+
+      if (found == null)
+      {
+        if (useAddress)
+          BluetoothLogger.Error($"Could not find device with address '{deviceAddress}' in paired device list.");
+        else
+          BluetoothLogger.Error($"Could not find '{deviceName}' in list of bluetooth devices.");
+      }
+
+      return found;
     }
 
     public static BallData? BallDataFromLaunchMonitorMetrics(BallMetrics? ballMetrics)
@@ -178,7 +248,7 @@ namespace gspro_r10
         if (disposing)
         {
           if (Device != null)
-            Device.GattServerDisconnected -= OnDeviceDisconnected;
+            Device.Disconnected -= OnDeviceDisconnected;
           LaunchMonitor?.Dispose();
         }
 

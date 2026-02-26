@@ -1,5 +1,6 @@
 using Google.Protobuf;
-using InTheHand.Bluetooth;
+using Linux.Bluetooth;
+using Linux.Bluetooth.Extensions;
 using System.Linq;
 using System.Text;
 using LaunchMonitor.Proto;
@@ -7,23 +8,22 @@ using System.Threading.Tasks;
 using System.Threading;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace gspro_r10.bluetooth
 {
   public abstract class BaseDevice : IDisposable
   {
-    internal static Guid BATTERY_SERVICE_UUID = Guid.Parse("0000180f-0000-1000-8000-00805f9b34fb");
-    internal static Guid BATTERY_CHARACTERISTIC_UUID = Guid.Parse("00002a19-0000-1000-8000-00805f9b34fb");
-    internal static Guid DEVICE_INFO_SERVICE_UUID = Guid.Parse("0000180a-0000-1000-8000-00805f9b34fb");
-    internal static Guid FIRMWARE_CHARACTERISTIC_UUID = Guid.Parse("00002a28-0000-1000-8000-00805f9b34fb");
-    internal static Guid MODEL_CHARACTERISTIC_UUID = Guid.Parse("00002a24-0000-1000-8000-00805f9b34fb");
-    internal static Guid SERIAL_NUMBER_CHARACTERISTIC_UUID = Guid.Parse("00002a25-0000-1000-8000-00805f9b34fb");
-    internal static Guid DEVICE_INTERFACE_SERVICE = Guid.Parse("6A4E2800-667B-11E3-949A-0800200C9A66");
-    internal static Guid DEVICE_INTERFACE_NOTIFIER = Guid.Parse("6A4E2812-667B-11E3-949A-0800200C9A66");
-    internal static Guid DEVICE_INTERFACE_WRITER = Guid.Parse("6A4E2822-667B-11E3-949A-0800200C9A66");
+    internal static string BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
+    internal static string BATTERY_CHARACTERISTIC_UUID = "00002a19-0000-1000-8000-00805f9b34fb";
+    internal static string DEVICE_INFO_SERVICE_UUID = "0000180a-0000-1000-8000-00805f9b34fb";
+    internal static string FIRMWARE_CHARACTERISTIC_UUID = "00002a28-0000-1000-8000-00805f9b34fb";
+    internal static string MODEL_CHARACTERISTIC_UUID = "00002a24-0000-1000-8000-00805f9b34fb";
+    internal static string SERIAL_NUMBER_CHARACTERISTIC_UUID = "00002a25-0000-1000-8000-00805f9b34fb";
+    internal static string DEVICE_INTERFACE_SERVICE = "6a4e2800-667b-11e3-949a-0800200c9a66";
+    internal static string DEVICE_INTERFACE_NOTIFIER = "6a4e2812-667b-11e3-949a-0800200c9a66";
+    internal static string DEVICE_INTERFACE_WRITER = "6a4e2822-667b-11e3-949a-0800200c9a66";
 
-    public BluetoothDevice Device { get; }
+    public Device Device { get; }
     public int Battery { get { return mBattery; }
       set {
         mBattery = value;
@@ -70,7 +70,7 @@ namespace gspro_r10.bluetooth
     private bool mDisposedValue;
     public bool DebugLogging { get; set; } = false;
 
-    public BaseDevice(BluetoothDevice device)
+    public BaseDevice(Device device)
     {
       Device = device;
 
@@ -84,36 +84,36 @@ namespace gspro_r10.bluetooth
     {
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting device info service");
-      GattService deviceInfoService = Device.Gatt.GetPrimaryServiceAsync(DEVICE_INFO_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
+      IGattService1 deviceInfoService = Device.GetServiceAsync(DEVICE_INFO_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading serial number");
-      GattCharacteristic serialCharacteristic = deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      Serial = Encoding.ASCII.GetString(serialCharacteristic.ReadValueAsync().WaitAsync(TimeSpan.FromSeconds(5)).Result);
+      IGattCharacteristic1 serialCharacteristic = deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
+      Serial = Encoding.ASCII.GetString(serialCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(5)).Result);
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading firmware version");
-      GattCharacteristic firmwareCharacteristic = deviceInfoService.GetCharacteristicAsync(FIRMWARE_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      Firmware = Encoding.ASCII.GetString(firmwareCharacteristic.ReadValueAsync().WaitAsync(TimeSpan.FromSeconds(5)).Result);
+      IGattCharacteristic1 firmwareCharacteristic = deviceInfoService.GetCharacteristicAsync(FIRMWARE_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
+      Firmware = Encoding.ASCII.GetString(firmwareCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(5)).Result);
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading model name");
-      GattCharacteristic modelCharacteristic = deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      Model = Encoding.ASCII.GetString(modelCharacteristic.ReadValueAsync().WaitAsync(TimeSpan.FromSeconds(5)).Result);
+      IGattCharacteristic1 modelCharacteristic = deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
+      Model = Encoding.ASCII.GetString(modelCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(5)).Result);
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading battery life");
-      GattService batteryService = Device.Gatt.GetPrimaryServiceAsync(BATTERY_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      GattCharacteristic batteryCharacteristic = batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      batteryCharacteristic.CharacteristicValueChanged += (o, e) => Battery = e.Value[0];
-      batteryCharacteristic.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5));
+      IGattService1 batteryService = Device.GetServiceAsync(BATTERY_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
+      GattCharacteristic batteryCharacteristic = (GattCharacteristic)batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
+      batteryCharacteristic.Value += (sender, args) => { Battery = args.Value[0]; return Task.CompletedTask; };
+      batteryCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
       if (DebugLogging)
         BaseLogger.LogDebug($"Setting up device interface service");
-      GattService deviceInterfaceService = Device.Gatt.GetPrimaryServiceAsync(DEVICE_INTERFACE_SERVICE).WaitAsync(TimeSpan.FromSeconds(5)).Result;
+      IGattService1 deviceInterfaceService = Device.GetServiceAsync(DEVICE_INTERFACE_SERVICE).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting writer");
-      mGattWriter = deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_WRITER).WaitAsync(TimeSpan.FromSeconds(5)).Result;
+      mGattWriter = (GattCharacteristic)deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_WRITER).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting reader");
-      GattCharacteristic deviceInterfaceNotifier = deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      deviceInterfaceNotifier.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5));
-      deviceInterfaceNotifier.CharacteristicValueChanged += (o, e) => ReadBytes(e.Value);
+      GattCharacteristic deviceInterfaceNotifier = (GattCharacteristic)deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
+      deviceInterfaceNotifier.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      deviceInterfaceNotifier.Value += (sender, args) => { ReadBytes(args.Value); return Task.CompletedTask; };
       bool handshakeSuccess = PerformHandShake();
       if (!handshakeSuccess)
         Console.WriteLine("Failed handshake. Something went wrong in setup");
@@ -176,7 +176,7 @@ namespace gspro_r10.bluetooth
     {
       while (!mCancellationToken.IsCancellationRequested)
         if (mWriterQueue.Count > 0)
-          mGattWriter?.WriteValueWithResponseAsync(mWriterQueue.Dequeue());
+          mGattWriter?.WriteValueAsync(mWriterQueue.Dequeue(), new Dictionary<string, object>()).Wait();
         else
           mWriterSignal.WaitOne(5000);
     }
@@ -362,7 +362,7 @@ namespace gspro_r10.bluetooth
           foreach (var d in BatteryLifeUpdated?.GetInvocationList() ?? Array.Empty<Delegate>())
             BatteryLifeUpdated -= (d as BatteryEventHandler);
 
-          Device?.Gatt?.Disconnect();
+          Device?.DisconnectAsync().Wait(TimeSpan.FromSeconds(5));
         }
 
         mDisposedValue = true;
