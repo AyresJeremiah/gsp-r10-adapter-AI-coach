@@ -56,7 +56,8 @@ namespace gspro_r10
             var dName = await Device.GetNameAsync();
             BluetoothLogger.Info($"Connecting to {dName}: {Device.ObjectPath}");
             await Device.ConnectAsync();
-            await Device.WaitForPropertyValueAsync("ServicesResolved", value: true, TimeSpan.FromSeconds(15));
+            await Device.WaitForPropertyValueAsync("ServicesResolved", value: true, TimeSpan.FromSeconds(30));
+            await Task.Delay(2000); // let D-Bus register service objects after ServicesResolved
             connected = await Device.GetConnectedAsync();
           }
           catch (Exception ex)

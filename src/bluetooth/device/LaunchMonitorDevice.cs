@@ -77,9 +77,9 @@ namespace gspro_r10.bluetooth
     {
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to measurement service");
-      IGattService1 measService = Device.GetServiceAsync(MEASUREMENT_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
-      GattCharacteristic measCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
-      if (!measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5)))
+      IGattService1 measService = Device.GetServiceAsync(MEASUREMENT_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      GattCharacteristic measCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      if (!measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30)))
       {
         BluetoothLogger.Error("Error subscribing to measurement characteristic");
       }
@@ -88,8 +88,8 @@ namespace gspro_r10.bluetooth
       measCharacteristic.Value += (sender, args) => Task.CompletedTask;
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to control service");
-      GattCharacteristic controlPoint = (GattCharacteristic)measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
-      if (!controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5)))
+      GattCharacteristic controlPoint = (GattCharacteristic)measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      if (!controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30)))
       {
         BluetoothLogger.Error("Error subscribing to the control characteristic");
       }
@@ -98,8 +98,8 @@ namespace gspro_r10.bluetooth
 
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to status service");
-      GattCharacteristic statusCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result!;
-      if (!statusCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5)))
+      GattCharacteristic statusCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      if (!statusCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30)))
       {
         BluetoothLogger.Error("Error subscribing to the status characteristic");
       }
