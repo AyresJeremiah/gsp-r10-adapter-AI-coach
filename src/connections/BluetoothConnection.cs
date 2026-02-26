@@ -128,7 +128,16 @@ namespace gspro_r10
 
     private BluetoothDevice? FindDevice(string deviceName)
     {
-      foreach (BluetoothDevice pairedDev in Bluetooth.GetPairedDevicesAsync().Result)
+      var pairedDevices = Bluetooth.GetPairedDevicesAsync().Result.ToList();
+      if (pairedDevices.Count == 0)
+      {
+        BluetoothLogger.Error("No paired bluetooth devices found on this computer");
+        return null;
+      }
+
+      BluetoothLogger.Info($"Found {pairedDevices.Count} paired bluetooth device(s): {string.Join(", ", pairedDevices.Select(d => $"'{d.Name}'"))}");
+
+      foreach (BluetoothDevice pairedDev in pairedDevices)
         if (pairedDev.Name == deviceName)
           return pairedDev;
       return null;
