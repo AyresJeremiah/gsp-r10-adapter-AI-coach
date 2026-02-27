@@ -86,12 +86,12 @@ namespace gspro_r10.bluetooth
     protected IGattService1 FindService(string serviceUUID)
     {
       List<string> lastUuids = new();
-      for (int attempt = 0; attempt < 5; attempt++)
+      for (int attempt = 0; attempt < 8; attempt++)
       {
         if (attempt > 0)
         {
-          BaseLogger.LogDebug($"FindService retry {attempt}/4 for {serviceUUID}");
-          Thread.Sleep(3000);
+          BaseLogger.LogDebug($"FindService retry {attempt}/7 for {serviceUUID}");
+          Thread.Sleep(5000);
         }
         try
         {
@@ -123,7 +123,7 @@ namespace gspro_r10.bluetooth
         }
       }
       string available = lastUuids.Count > 0 ? string.Join(", ", lastUuids) : "(none retrieved)";
-      throw new Exception($"Service '{serviceUUID}' not found after 5 attempts. Available: [{available}]");
+      throw new Exception($"Service '{serviceUUID}' not found after 8 attempts. Available: [{available}]");
     }
 
     public virtual bool Setup()
@@ -133,20 +133,20 @@ namespace gspro_r10.bluetooth
       IGattService1 deviceInfoService = FindService(DEVICE_INFO_SERVICE_UUID);
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading serial number");
-      IGattCharacteristic1 serialCharacteristic = deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      Serial = Encoding.ASCII.GetString(serialCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(30)).Result);
+      IGattCharacteristic1 serialCharacteristic = Task.Run(async () => await deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      Serial = Encoding.ASCII.GetString(Task.Run(async () => await serialCharacteristic.ReadValueAsync(new Dictionary<string, object>())).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading firmware version");
-      IGattCharacteristic1 firmwareCharacteristic = deviceInfoService.GetCharacteristicAsync(FIRMWARE_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      Firmware = Encoding.ASCII.GetString(firmwareCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(30)).Result);
+      IGattCharacteristic1 firmwareCharacteristic = Task.Run(async () => await deviceInfoService.GetCharacteristicAsync(FIRMWARE_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      Firmware = Encoding.ASCII.GetString(Task.Run(async () => await firmwareCharacteristic.ReadValueAsync(new Dictionary<string, object>())).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading model name");
-      IGattCharacteristic1 modelCharacteristic = deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
-      Model = Encoding.ASCII.GetString(modelCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(30)).Result);
+      IGattCharacteristic1 modelCharacteristic = Task.Run(async () => await deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      Model = Encoding.ASCII.GetString(Task.Run(async () => await modelCharacteristic.ReadValueAsync(new Dictionary<string, object>())).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading battery life");
       IGattService1 batteryService = FindService(BATTERY_SERVICE_UUID);
-      GattCharacteristic batteryCharacteristic = (GattCharacteristic)batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      GattCharacteristic batteryCharacteristic = (GattCharacteristic)Task.Run(async () => await batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
       // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       batteryCharacteristic.Value += (sender, args) => { Battery = args.Value[0]; return Task.CompletedTask; };
       if (DebugLogging)
@@ -154,10 +154,10 @@ namespace gspro_r10.bluetooth
       IGattService1 deviceInterfaceService = FindService(DEVICE_INTERFACE_SERVICE);
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting writer");
-      mGattWriter = (GattCharacteristic)deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_WRITER).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      mGattWriter = (GattCharacteristic)Task.Run(async () => await deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_WRITER)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting reader");
-      GattCharacteristic deviceInterfaceNotifier = (GattCharacteristic)deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      GattCharacteristic deviceInterfaceNotifier = (GattCharacteristic)Task.Run(async () => await deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
       // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       deviceInterfaceNotifier.Value += (sender, args) => { ReadBytes(args.Value); return Task.CompletedTask; };
       bool handshakeSuccess = PerformHandShake();
@@ -220,9 +220,13 @@ namespace gspro_r10.bluetooth
 
     private void WriterThread()
     {
+      var writeOptions = new Dictionary<string, object> { { "type", "command" } };
       while (!mCancellationToken.IsCancellationRequested)
         if (mWriterQueue.Count > 0)
-          mGattWriter?.WriteValueAsync(mWriterQueue.Dequeue(), new Dictionary<string, object>()).Wait();
+        {
+          var data = mWriterQueue.Dequeue();
+          Task.Run(async () => await mGattWriter!.WriteValueAsync(data, writeOptions)).Wait();
+        }
         else
           mWriterSignal.WaitOne(5000);
     }

@@ -48,6 +48,28 @@ namespace gspro_r10
           return;
         }
 
+        // Ensure device is paired before attempting connection — BlueZ requires explicit pairing
+        // on Linux unlike Windows which handles it transparently on first GATT access.
+        try
+        {
+          bool isPaired = await Task.Run(async () => await Device.GetPairedAsync());
+          if (!isPaired)
+          {
+            BluetoothLogger.Info("Device not paired. Attempting to pair...");
+            await Task.Run(async () => await Device.PairAsync());
+            BluetoothLogger.Info("Pairing complete. Waiting 2s for BlueZ to stabilize...");
+            await Task.Delay(2000);
+          }
+          else
+          {
+            BluetoothLogger.Info("Device is already paired");
+          }
+        }
+        catch (Exception ex)
+        {
+          BluetoothLogger.Error($"Pairing attempt failed (will try to connect anyway): {ex.Message}");
+        }
+
         int attemptNumber = 0;
         bool connected = false;
         do
@@ -191,7 +213,39 @@ namespace gspro_r10
         return null;
       }
 
-      var adapter = adapters[0];
+      // Allow selecting a specific adapter by MAC address (e.g. a USB dongle that avoids WiFi coexistence)
+      string? adapterAddress = Configuration["bluetoothAdapterAddress"];
+      Adapter adapter;
+      if (!string.IsNullOrWhiteSpace(adapterAddress))
+      {
+        Adapter? matched = null;
+        foreach (var a in adapters)
+        {
+          try
+          {
+            string addr = await a.GetAddressAsync();
+            if (string.Equals(addr, adapterAddress, StringComparison.OrdinalIgnoreCase))
+            { matched = a; break; }
+          }
+          catch { }
+        }
+        if (matched == null)
+        {
+          BluetoothLogger.Error($"Adapter with address '{adapterAddress}' not found. Available adapters:");
+          foreach (var a in adapters)
+          {
+            try { BluetoothLogger.Error($"  {await a.GetAddressAsync()}"); } catch { }
+          }
+          return null;
+        }
+        adapter = matched;
+        BluetoothLogger.Info($"Using adapter {adapterAddress}");
+      }
+      else
+      {
+        adapter = adapters[0];
+      }
+
       bool useAddress = !string.IsNullOrWhiteSpace(deviceAddress);
 
       // First pass: check already-known devices (no scan needed)

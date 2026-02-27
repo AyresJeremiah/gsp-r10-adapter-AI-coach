@@ -78,19 +78,19 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to measurement service");
       IGattService1 measService = FindService(MEASUREMENT_SERVICE_UUID);
-      GattCharacteristic measCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      GattCharacteristic measCharacteristic = (GattCharacteristic)Task.Run(async () => await measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
       // Subscribe once via StartNotifyAsync — no Value handler needed (data unused)
-      measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));
+      Task.Run(async () => await measCharacteristic.StartNotifyAsync()).Wait(TimeSpan.FromSeconds(30));
 
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to control service");
-      GattCharacteristic controlPoint = (GattCharacteristic)measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      GattCharacteristic controlPoint = (GattCharacteristic)Task.Run(async () => await measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
       // Subscribe once via StartNotifyAsync — no Value handler needed (unused for now)
-      controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));
+      Task.Run(async () => await controlPoint.StartNotifyAsync()).Wait(TimeSpan.FromSeconds(30));
 
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to status service");
-      GattCharacteristic statusCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      GattCharacteristic statusCharacteristic = (GattCharacteristic)Task.Run(async () => await measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
       // Subscribe once via Value += (auto-subscribes internally)
       statusCharacteristic.Value += (sender, args) =>
       {
