@@ -118,10 +118,27 @@ namespace gspro_r10.bluetooth
       }
 
 
-      WakeDevice();
-      CurrentState = StatusRequest() ?? StateType.Error;
+      var wakeResult = WakeDevice();
+      if (wakeResult == null)
+        BluetoothLogger.Error("WakeDevice failed (device may already be awake, continuing)");
+
+      var statusResult = StatusRequest();
+      if (statusResult == null)
+      {
+        BluetoothLogger.Error("StatusRequest failed");
+        return false;
+      }
+      CurrentState = statusResult.Value;
+
       DeviceTilt = GetDeviceTilt();
-      SubscribeToAlerts().First();
+
+      var alerts = SubscribeToAlerts();
+      if (alerts.Count == 0)
+      {
+        BluetoothLogger.Error("SubscribeToAlerts returned empty list");
+        return false;
+      }
+      alerts.First();
 
       if (CalibrateTiltOnConnect)
         StartTiltCalibration();

@@ -7,6 +7,7 @@ using LaunchMonitor.Proto;
 using System.Threading.Tasks;
 using System.Threading;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
@@ -85,11 +86,11 @@ namespace gspro_r10.bluetooth
     }
 
     private EventWaitHandle mWriterSignal = new AutoResetEvent(false);
-    private Queue<byte[]> mWriterQueue = new Queue<byte[]>();
+    private ConcurrentQueue<byte[]> mWriterQueue = new ConcurrentQueue<byte[]>();
     private EventWaitHandle mReaderSignal = new AutoResetEvent(false);
-    private Queue<byte[]> mReaderQueue = new Queue<byte[]>();
+    private ConcurrentQueue<byte[]> mReaderQueue = new ConcurrentQueue<byte[]>();
     private EventWaitHandle mMsgProcessSignal = new AutoResetEvent(false);
-    private Queue<byte[]> mMsgProcessQueue = new Queue<byte[]>();
+    private ConcurrentQueue<byte[]> mMsgProcessQueue = new ConcurrentQueue<byte[]>();
     private ManualResetEventSlim mHandshakeCompleteResetEvent = new ManualResetEventSlim(false);
     private ManualResetEventSlim mProtoResponseResetEvent = new ManualResetEventSlim(false);
     private IMessage? mLastProtoReceived;
@@ -97,6 +98,7 @@ namespace gspro_r10.bluetooth
     private bool mHandshakeComplete = false;
     private byte mHeader = 0x00;
     private int mProtoRequestCounter = 0;
+    private readonly object mProtoRequestLock = new object();
     private CancellationTokenSource mCancellationToken;
     private Task mWriterTask;
     private Task mReaderTask;
@@ -422,7 +424,7 @@ namespace gspro_r10.bluetooth
 
       bool handshakeSuccess = PerformHandShake();
       if (!handshakeSuccess)
-        Console.WriteLine("Failed handshake. Something went wrong in setup");
+        BluetoothLogger.Error("Failed handshake. Something went wrong in setup");
       return handshakeSuccess;
     }
 
@@ -432,43 +434,50 @@ namespace gspro_r10.bluetooth
 
       while (!mCancellationToken.IsCancellationRequested)
       {
-        if (mReaderQueue.Count > 0)
+        if (mReaderQueue.TryDequeue(out byte[]? rawMsg))
         {
-          IEnumerable<byte> msg = mReaderQueue.Dequeue();
-
-          byte header = msg.First();
-          msg = msg.Skip(1);
-
-          if (header == 0 || !mHandshakeComplete)
+          try
           {
-            ContinueHandShake(msg);
-            continue;
-          }
+            IEnumerable<byte> msg = rawMsg;
 
-          bool readComplete = false;
-
-          if (msg.Last() == 0x00)
-          {
-            readComplete = true;
-            msg = msg.SkipLast(1);
-          }
-          if (msg.Count() > 0 && msg.First() == 0x00)
-          {
-            currentMessage.Clear();
+            byte header = msg.First();
             msg = msg.Skip(1);
-          }
-          currentMessage.AddRange(msg);
 
-          if (readComplete && currentMessage.Count > 0)
+            if (header == 0 || !mHandshakeComplete)
+            {
+              ContinueHandShake(msg);
+              continue;
+            }
+
+            bool readComplete = false;
+
+            if (msg.Last() == 0x00)
+            {
+              readComplete = true;
+              msg = msg.SkipLast(1);
+            }
+            if (msg.Count() > 0 && msg.First() == 0x00)
+            {
+              currentMessage.Clear();
+              msg = msg.Skip(1);
+            }
+            currentMessage.AddRange(msg);
+
+            if (readComplete && currentMessage.Count > 0)
+            {
+              if (DebugLogging)
+                BaseLogger.LogDebug($"  -> {currentMessage.ToHexString().PadRight(44)} (encoded)");
+              byte[] decoded = COBS.Decode(currentMessage.ToArray()).ToArray();
+              if (DebugLogging)
+                BaseLogger.LogDebug($"-> {decoded.ToHexString().PadRight(46)} (decoded)");
+              mMsgProcessQueue.Enqueue(decoded);
+              mMsgProcessSignal.Set();
+              currentMessage.Clear();
+            }
+          }
+          catch (Exception ex)
           {
-            if (DebugLogging)
-              BaseLogger.LogDebug($"  -> {currentMessage.ToHexString().PadRight(44)} (encoded)");
-            byte[] decoded = COBS.Decode(currentMessage.ToArray()).ToArray();
-            if (DebugLogging)
-              BaseLogger.LogDebug($"-> {decoded.ToHexString().PadRight(46)} (decoded)");
-            mMsgProcessQueue.Enqueue(decoded);
-            mMsgProcessSignal.Set();
-            currentMessage.Clear();
+            BluetoothLogger.Error($"ReaderThread error: {ex.Message}");
           }
         }
         else
@@ -482,10 +491,16 @@ namespace gspro_r10.bluetooth
     {
       var writeOptions = new Dictionary<string, object> { { "type", "command" } };
       while (!mCancellationToken.IsCancellationRequested)
-        if (mWriterQueue.Count > 0)
+        if (mWriterQueue.TryDequeue(out byte[]? data))
         {
-          var data = mWriterQueue.Dequeue();
-          Task.Run(async () => await mGattWriter!.WriteValueAsync(data, writeOptions)).Wait();
+          try
+          {
+            Task.Run(async () => await mGattWriter!.WriteValueAsync(data, writeOptions)).Wait();
+          }
+          catch (Exception ex)
+          {
+            BluetoothLogger.Error($"WriterThread error: {ex.Message}");
+          }
         }
         else
           mWriterSignal.WaitOne(5000);
@@ -494,8 +509,17 @@ namespace gspro_r10.bluetooth
     private void MsgProcessingThread()
     {
       while (!mCancellationToken.IsCancellationRequested)
-        if (mMsgProcessQueue.Count > 0)
-          ProcessMessage(mMsgProcessQueue.Dequeue());
+        if (mMsgProcessQueue.TryDequeue(out byte[]? msg))
+        {
+          try
+          {
+            ProcessMessage(msg);
+          }
+          catch (Exception ex)
+          {
+            BluetoothLogger.Error($"MsgProcessingThread error: {ex.Message}");
+          }
+        }
         else
           mMsgProcessSignal.WaitOne(5000);
     }
@@ -527,9 +551,16 @@ namespace gspro_r10.bluetooth
 
     private void ProcessMessage(byte[] frame)
     {
+      // Need at least 2-byte length header + 2-byte message type + 2-byte CRC = 6 bytes minimum
+      if (frame.Length < 6)
+      {
+        BluetoothLogger.Error($"ProcessMessage: frame too short ({frame.Length} bytes), dropping: {frame.ToHexString()}");
+        return;
+      }
+
       if (BitConverter.ToUInt16(frame.SkipLast(2).Checksum()) != BitConverter.ToUInt16(frame.TakeLast(2).ToArray()))
       {
-        Console.WriteLine("CRC ERROR");
+        BluetoothLogger.Error("CRC ERROR");
       }
 
       byte[] msg = frame.Skip(2).SkipLast(2).ToArray();
@@ -557,6 +588,10 @@ namespace gspro_r10.bluetooth
           MessageRecieved?.Invoke(this, new MessageEventArgs() { Message = mLastProtoReceived } );
           mProtoResponseResetEvent.Set();
         }
+        else
+        {
+          BluetoothLogger.Error($"Proto response counter mismatch: got {counter}, expected {mProtoRequestCounter}");
+        }
       }
       else if (hex.StartsWith("B313")) // all protobuf requests
       {
@@ -581,30 +616,42 @@ namespace gspro_r10.bluetooth
 
     public IMessage? SendProtobufRequest(IMessage proto)
     {
-
-      mProtoResponseResetEvent.Reset();
-
-      byte[] bytes = proto.ToByteArray();
-      int l = bytes.Length;
-      byte[] fullMsg = "B313".ToByteArray()
-        .Concat(BitConverter.GetBytes(mProtoRequestCounter))
-        .Append<byte>(0x00)
-        .Append<byte>(0x00)
-        .Concat(BitConverter.GetBytes(l))
-        .Concat(BitConverter.GetBytes(l))
-        .Concat(bytes)
-        .ToArray();
-
-      WriteMessage(fullMsg);
-      MessageSent?.Invoke(this, new MessageEventArgs(){ Message = proto });
-      if (mProtoResponseResetEvent.Wait(5000))
+      lock (mProtoRequestLock)
       {
-        mProtoRequestCounter++;
-        return mLastProtoReceived;
-      }
-      else
-      {
-        Console.WriteLine($"Failed to get response for proto {mProtoRequestCounter}");
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+          mProtoResponseResetEvent.Reset();
+
+          byte[] bytes = proto.ToByteArray();
+          int l = bytes.Length;
+          byte[] fullMsg = "B313".ToByteArray()
+            .Concat(BitConverter.GetBytes(mProtoRequestCounter))
+            .Append<byte>(0x00)
+            .Append<byte>(0x00)
+            .Concat(BitConverter.GetBytes(l))
+            .Concat(BitConverter.GetBytes(l))
+            .Concat(bytes)
+            .ToArray();
+
+          WriteMessage(fullMsg);
+          MessageSent?.Invoke(this, new MessageEventArgs(){ Message = proto });
+          if (mProtoResponseResetEvent.Wait(5000))
+          {
+            mProtoRequestCounter++;
+            return mLastProtoReceived;
+          }
+          else
+          {
+            // Always increment counter on timeout — the device has already
+            // processed this request and moved its counter forward. Without
+            // this, all subsequent responses arrive with a mismatched counter
+            // and get silently dropped, permanently desyncing the protocol.
+            mProtoRequestCounter++;
+            BluetoothLogger.Error($"Timeout waiting for proto response (attempt {attempt}/3, counter now {mProtoRequestCounter})");
+            if (attempt < 3)
+              Thread.Sleep(500);
+          }
+        }
         return null;
       }
     }
