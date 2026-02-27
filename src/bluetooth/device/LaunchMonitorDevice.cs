@@ -77,7 +77,7 @@ namespace gspro_r10.bluetooth
     {
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to measurement service");
-      IGattService1 measService = Device.GetServiceAsync(MEASUREMENT_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      IGattService1 measService = FindService(MEASUREMENT_SERVICE_UUID);
       GattCharacteristic measCharacteristic = (GattCharacteristic)measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
       // Subscribe once via StartNotifyAsync — no Value handler needed (data unused)
       measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(30));

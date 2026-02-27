@@ -48,17 +48,46 @@ namespace gspro_r10
           return;
         }
 
+        int attemptNumber = 0;
         bool connected = false;
         do
         {
+          attemptNumber++;
+          BluetoothLogger.Info($"Connection attempt #{attemptNumber}");
           try
           {
+            BluetoothLogger.Info($"Getting device name...");
             var dName = await Device.GetNameAsync();
-            BluetoothLogger.Info($"Connecting to {dName}: {Device.ObjectPath}");
-            await Device.ConnectAsync();
-            await Device.WaitForPropertyValueAsync("ServicesResolved", value: true, TimeSpan.FromSeconds(30));
-            await Task.Delay(2000); // let D-Bus register service objects after ServicesResolved
-            connected = await Device.GetConnectedAsync();
+            BluetoothLogger.Info($"Checking connected state...");
+            // Check if already connected before calling ConnectAsync.
+            // Calling ConnectAsync on an already-connected device leaks pending D-Bus calls
+            // because WaitAsync abandons (but doesn't cancel) the underlying Task.
+            bool isAlreadyConnected = await Task.Run(async () => await Device.GetConnectedAsync());
+            if (!isAlreadyConnected)
+            {
+              BluetoothLogger.Info($"Connecting to {dName}: {Device.ObjectPath}");
+              // Await directly without WaitAsync — BlueZ's own timeout (~30s) will cause
+              // ConnectAsync to return an error if the connection fails, so no need to abandon the task.
+              await Task.Run(async () => await Device.ConnectAsync());
+              BluetoothLogger.Info($"ConnectAsync returned, polling ServicesResolved...");
+            }
+            else
+            {
+              BluetoothLogger.Info($"Already connected to {dName}: {Device.ObjectPath}");
+            }
+
+            // Poll for ServicesResolved rather than using WaitForPropertyValueAsync (which sets up
+            // a D-Bus signal subscription that deadlocks subsequent GetManagedObjects calls in Tmds.DBus)
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+            while (DateTime.UtcNow < deadline)
+            {
+              bool resolved = await Task.Run(async () => await Device.GetServicesResolvedAsync());
+              if (resolved) break;
+              await Task.Delay(500);
+            }
+            BluetoothLogger.Info($"Verifying connected state...");
+            await Task.Delay(2000); // let D-Bus object registration settle
+            connected = await Task.Run(async () => await Device.GetConnectedAsync());
           }
           catch (Exception ex)
           {
@@ -68,8 +97,11 @@ namespace gspro_r10
 
           if (!connected)
           {
+            // Force GC to reclaim any D-Bus/Tmds.DBus objects from the failed attempt
+            GC.Collect(2, GCCollectionMode.Aggressive);
+            GC.WaitForPendingFinalizers();
             BluetoothLogger.Info($"Could not connect to bluetooth device. Waiting {ReconnectInterval} seconds before trying again");
-            Thread.Sleep(TimeSpan.FromSeconds(ReconnectInterval));
+            await Task.Delay(TimeSpan.FromSeconds(ReconnectInterval));
           }
         }
         while (!connected);
@@ -160,15 +192,36 @@ namespace gspro_r10
       }
 
       var adapter = adapters[0];
-      var devices = await adapter.GetDevicesAsync();
+      bool useAddress = !string.IsNullOrWhiteSpace(deviceAddress);
 
-      if (devices.Count == 0)
+      // First pass: check already-known devices (no scan needed)
+      Device? found = await SearchKnownDevicesAsync(adapter, deviceName, deviceAddress, useAddress);
+      if (found != null) return found;
+
+      // Second pass: run a discovery scan so the device can be found even if not previously paired
+      BluetoothLogger.Info("Device not in known list. Starting 15s BLE discovery scan...");
+      try { await adapter.StartDiscoveryAsync(); } catch (Exception ex) { BluetoothLogger.Error($"StartDiscovery failed: {ex.Message}"); }
+      await Task.Delay(TimeSpan.FromSeconds(15));
+      try { await adapter.StopDiscoveryAsync(); } catch { }
+
+      found = await SearchKnownDevicesAsync(adapter, deviceName, deviceAddress, useAddress);
+
+      if (found == null)
       {
-        BluetoothLogger.Error("No paired bluetooth devices found on this computer");
-        return null;
+        if (useAddress)
+          BluetoothLogger.Error($"Could not find device with address '{deviceAddress}' after discovery scan. Make sure the device is powered on.");
+        else
+          BluetoothLogger.Error($"Could not find '{deviceName}' after discovery scan. Make sure the device is powered on.");
       }
 
-      bool useAddress = !string.IsNullOrWhiteSpace(deviceAddress);
+      return found;
+    }
+
+    private async Task<Device?> SearchKnownDevicesAsync(Adapter adapter, string deviceName, string? deviceAddress, bool useAddress)
+    {
+      var devices = await adapter.GetDevicesAsync();
+      if (devices.Count == 0) return null;
+
       var deviceDescriptions = new List<string>();
       Device? found = null;
 
@@ -202,15 +255,6 @@ namespace gspro_r10
       }
 
       BluetoothLogger.Info($"Found {devices.Count} bluetooth device(s): {string.Join(", ", deviceDescriptions)}");
-
-      if (found == null)
-      {
-        if (useAddress)
-          BluetoothLogger.Error($"Could not find device with address '{deviceAddress}' in paired device list.");
-        else
-          BluetoothLogger.Error($"Could not find '{deviceName}' in list of bluetooth devices.");
-      }
-
       return found;
     }
 

@@ -80,11 +80,57 @@ namespace gspro_r10.bluetooth
       mMsgProcessingTask = Task.Run(MsgProcessingThread, mCancellationToken.Token);
     }
 
+    // GetServiceAsync waits for a D-Bus InterfacesAdded signal that may never fire if services
+    // were already resolved. Use GetServicesAsync (snapshot) + manual UUID match instead.
+    // GetServicesAsync calls GetManagedObjects which can be slow on Pi; retry a few times.
+    protected IGattService1 FindService(string serviceUUID)
+    {
+      List<string> lastUuids = new();
+      for (int attempt = 0; attempt < 5; attempt++)
+      {
+        if (attempt > 0)
+        {
+          BaseLogger.LogDebug($"FindService retry {attempt}/4 for {serviceUUID}");
+          Thread.Sleep(3000);
+        }
+        try
+        {
+          // Task.Run prevents sync-over-async deadlock: GetServicesAsync uses Tmds.DBus
+          // which posts completions back to the ThreadPool. Blocking that same thread with
+          // GetResult() would deadlock; Task.Run gives it a fresh context.
+          IReadOnlyList<IGattService1>? services = Task.Run(async () =>
+            await Device.GetServicesAsync()).GetAwaiter().GetResult();
+          if (services == null || services.Count == 0) continue;
+
+          lastUuids = new List<string>();
+          foreach (var svc in services)
+          {
+            try
+            {
+              string uuid = Task.Run(async () => await svc.GetUUIDAsync()).GetAwaiter().GetResult();
+              lastUuids.Add(uuid);
+              if (string.Equals(uuid, serviceUUID, StringComparison.OrdinalIgnoreCase))
+                return svc;
+            }
+            catch { lastUuids.Add("(error)"); }
+          }
+          // Services returned but UUID not found — log and retry
+          BaseLogger.LogDebug($"Available services: [{string.Join(", ", lastUuids)}]");
+        }
+        catch (TimeoutException)
+        {
+          BaseLogger.LogDebug($"GetServicesAsync timed out on attempt {attempt + 1}/5");
+        }
+      }
+      string available = lastUuids.Count > 0 ? string.Join(", ", lastUuids) : "(none retrieved)";
+      throw new Exception($"Service '{serviceUUID}' not found after 5 attempts. Available: [{available}]");
+    }
+
     public virtual bool Setup()
     {
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting device info service");
-      IGattService1 deviceInfoService = Device.GetServiceAsync(DEVICE_INFO_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      IGattService1 deviceInfoService = FindService(DEVICE_INFO_SERVICE_UUID);
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading serial number");
       IGattCharacteristic1 serialCharacteristic = deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
@@ -99,13 +145,13 @@ namespace gspro_r10.bluetooth
       Model = Encoding.ASCII.GetString(modelCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(30)).Result);
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading battery life");
-      IGattService1 batteryService = Device.GetServiceAsync(BATTERY_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      IGattService1 batteryService = FindService(BATTERY_SERVICE_UUID);
       GattCharacteristic batteryCharacteristic = (GattCharacteristic)batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
       // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       batteryCharacteristic.Value += (sender, args) => { Battery = args.Value[0]; return Task.CompletedTask; };
       if (DebugLogging)
         BaseLogger.LogDebug($"Setting up device interface service");
-      IGattService1 deviceInterfaceService = Device.GetServiceAsync(DEVICE_INTERFACE_SERVICE).WaitAsync(TimeSpan.FromSeconds(30)).Result!;
+      IGattService1 deviceInterfaceService = FindService(DEVICE_INTERFACE_SERVICE);
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting writer");
       mGattWriter = (GattCharacteristic)deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_WRITER).WaitAsync(TimeSpan.FromSeconds(30)).Result!;

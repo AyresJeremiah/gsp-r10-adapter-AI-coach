@@ -36,9 +36,11 @@ namespace gspro_r10
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"XX {message}");
             Console.ResetColor();
+            Console.Out.Flush();
             return;
         }
         Console.WriteLine(message);
+        Console.Out.Flush();
       }
     }
   }
