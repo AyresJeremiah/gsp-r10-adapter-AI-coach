@@ -75,7 +75,10 @@ namespace gspro_r10.bluetooth
 
     public override bool Setup()
     {
-      DiscoverGattTree();
+      // Enable device interface notifier FIRST — before any other GATT operations.
+      // On the Pi, calling StartNotify on this characteristic after other
+      // StartNotify/read operations causes BlueZ to hang.
+      SetupDeviceInterfaceNotifier();
 
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to measurement characteristic");

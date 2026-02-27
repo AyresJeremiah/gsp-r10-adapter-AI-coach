@@ -14,6 +14,38 @@ using Tmds.DBus;
 
 namespace gspro_r10.bluetooth
 {
+  // D-Bus interface for org.bluez.Agent1 — needed to register a NoInputNoOutput
+  // pairing agent so that BlueZ uses Just Works pairing (no MITM flag).
+  [DBusInterface("org.bluez.Agent1")]
+  public interface IAgent1 : IDBusObject
+  {
+    Task ReleaseAsync();
+    Task<string> RequestPinCodeAsync(ObjectPath device);
+    Task DisplayPinCodeAsync(ObjectPath device, string pincode);
+    Task<uint> RequestPasskeyAsync(ObjectPath device);
+    Task DisplayPasskeyAsync(ObjectPath device, uint passkey, ushort entered);
+    Task RequestConfirmationAsync(ObjectPath device, uint passkey);
+    Task RequestAuthorizationAsync(ObjectPath device);
+    Task AuthorizeServiceAsync(ObjectPath device, string uuid);
+    Task CancelAsync();
+  }
+
+  // Minimal Just Works agent — accepts all pairing requests without user interaction.
+  public class NoInputNoOutputAgent : IAgent1
+  {
+    public static readonly ObjectPath AgentPath = new ObjectPath("/gspro/agent");
+    public ObjectPath ObjectPath => AgentPath;
+
+    public Task ReleaseAsync() => Task.CompletedTask;
+    public Task<string> RequestPinCodeAsync(ObjectPath device) => Task.FromResult("0000");
+    public Task DisplayPinCodeAsync(ObjectPath device, string pincode) => Task.CompletedTask;
+    public Task<uint> RequestPasskeyAsync(ObjectPath device) => Task.FromResult<uint>(0);
+    public Task DisplayPasskeyAsync(ObjectPath device, uint passkey, ushort entered) => Task.CompletedTask;
+    public Task RequestConfirmationAsync(ObjectPath device, uint passkey) => Task.CompletedTask;
+    public Task RequestAuthorizationAsync(ObjectPath device) => Task.CompletedTask;
+    public Task AuthorizeServiceAsync(ObjectPath device, string uuid) => Task.CompletedTask;
+    public Task CancelAsync() => Task.CompletedTask;
+  }
   public abstract class BaseDevice : IDisposable
   {
     internal static string BATTERY_SERVICE_UUID = "0000180f-0000-1000-8000-00805f9b34fb";
@@ -216,7 +248,7 @@ namespace gspro_r10.bluetooth
       return suffix.StartsWith(prefix) && !suffix.Contains('/');
     }
 
-    private static string RunProcess(string fileName, string arguments)
+    private static string RunProcess(string fileName, string arguments, int timeoutMs = 10000)
     {
       var psi = new ProcessStartInfo(fileName, arguments)
       {
@@ -226,9 +258,12 @@ namespace gspro_r10.bluetooth
         CreateNoWindow = true
       };
       using var proc = Process.Start(psi)!;
-      string output = proc.StandardOutput.ReadToEnd();
-      proc.WaitForExit(10000);
-      return output;
+      if (!proc.WaitForExit(timeoutMs))
+      {
+        try { proc.Kill(); } catch { }
+        return "";
+      }
+      return proc.StandardOutput.ReadToEnd();
     }
 
     private static string ReadBusProperty(string objectPath, string iface, string property)
@@ -240,6 +275,124 @@ namespace gspro_r10.bluetooth
       if (start >= 0 && end > start)
         return output.Substring(start + 1, end - start - 1);
       return "";
+    }
+
+    private static bool sAgentRegistered = false;
+
+    /// <summary>
+    /// Registers a NoInputNoOutput D-Bus agent with BlueZ so that auto-pairing
+    /// triggered by "Insufficient Authentication" uses Just Works (no MITM flag).
+    /// Without this, BlueZ defaults to DisplayYesNo which sets the MITM flag and
+    /// causes the R10 to reject the pairing and disconnect.
+    /// </summary>
+    private void RegisterPairingAgent()
+    {
+      if (sAgentRegistered) return;
+
+      try
+      {
+        if (sDbusConnection == null)
+        {
+          sDbusConnection = new Connection(Address.System);
+          Task.Run(async () => await sDbusConnection.ConnectAsync()).GetAwaiter().GetResult();
+          if (DebugLogging)
+            BaseLogger.LogDebug("Created fresh D-Bus connection for GATT proxies");
+        }
+
+        var agent = new NoInputNoOutputAgent();
+
+        // Export the agent object on D-Bus so BlueZ can call its methods
+        Task.Run(async () => await sDbusConnection.RegisterObjectAsync(agent)).GetAwaiter().GetResult();
+        if (DebugLogging)
+          BaseLogger.LogDebug("Exported Agent1 object on D-Bus");
+
+        // Register with BlueZ AgentManager1
+        var agentManager = sDbusConnection.CreateProxy<IAgentManager1>(
+          "org.bluez", new ObjectPath("/org/bluez"));
+        Task.Run(async () => await agentManager.RegisterAgentAsync(NoInputNoOutputAgent.AgentPath, "NoInputNoOutput")).GetAwaiter().GetResult();
+        if (DebugLogging)
+          BaseLogger.LogDebug("Registered NoInputNoOutput agent with BlueZ");
+
+        Task.Run(async () => await agentManager.RequestDefaultAgentAsync(NoInputNoOutputAgent.AgentPath)).GetAwaiter().GetResult();
+        if (DebugLogging)
+          BaseLogger.LogDebug("Set as default agent");
+
+        sAgentRegistered = true;
+      }
+      catch (Exception ex)
+      {
+        BaseLogger.LogDebug($"Agent registration failed (non-fatal): {ex.Message}");
+      }
+    }
+
+    /// <summary>
+    /// Enables BLE notifications on the device interface notifier and sets up
+    /// the D-Bus signal watcher. Must be called BEFORE any other StartNotify
+    /// or GATT read operations to avoid BLE channel contention on the Pi.
+    /// </summary>
+    protected void SetupDeviceInterfaceNotifier()
+    {
+      DiscoverGattTree();
+
+      string notifierPath = mGattPaths![DEVICE_INTERFACE_SERVICE][DEVICE_INTERFACE_NOTIFIER];
+
+      // Ensure fresh D-Bus connection exists
+      if (sDbusConnection == null)
+      {
+        sDbusConnection = new Connection(Address.System);
+        Task.Run(async () => await sDbusConnection.ConnectAsync()).GetAwaiter().GetResult();
+        if (DebugLogging)
+          BaseLogger.LogDebug("Created fresh D-Bus connection for GATT proxies");
+      }
+
+      // Register a NoInputNoOutput pairing agent BEFORE StartNotify.
+      // This characteristic's CCCD requires authentication; StartNotify triggers
+      // auto-pairing. Without the right agent, BlueZ uses DisplayYesNo (MITM flag)
+      // which the R10 rejects.
+      RegisterPairingAgent();
+
+      if (DebugLogging)
+        BaseLogger.LogDebug($"Calling StartNotify on {notifierPath}");
+
+      // Set up D-Bus signal watcher FIRST so we don't miss any notifications
+      var notifierProxy = sDbusConnection.CreateProxy<IGattCharacteristic1>(
+        "org.bluez", new ObjectPath(notifierPath));
+      Task.Run(async () => await notifierProxy.WatchPropertiesAsync(changes =>
+      {
+        foreach (var kvp in changes.Changed)
+        {
+          if (kvp.Key == "Value")
+          {
+            ReadBytes((byte[])kvp.Value);
+          }
+        }
+      })).Wait(TimeSpan.FromSeconds(10));
+      if (DebugLogging)
+        BaseLogger.LogDebug("D-Bus signal watcher ready");
+
+      // Now call StartNotify — this writes to the CCCD, which triggers
+      // Insufficient Authentication → auto-pairing (using our NoInputNoOutput agent)
+      // → bond established → CCCD write retried → notifications enabled.
+      try
+      {
+        Task.Run(async () => await notifierProxy.StartNotifyAsync())
+          .WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult();
+        if (DebugLogging)
+          BaseLogger.LogDebug("StartNotify succeeded on device interface notifier");
+      }
+      catch (TimeoutException)
+      {
+        BaseLogger.LogDebug("StartNotify timed out (30s) — pairing may have failed");
+        // Check if Notifying got enabled despite the timeout
+        string notifyingRaw = RunProcess("busctl",
+          $"get-property org.bluez {notifierPath} org.bluez.GattCharacteristic1 Notifying").Trim();
+        if (DebugLogging)
+          BaseLogger.LogDebug($"Notifying status: {notifyingRaw}");
+      }
+      catch (Exception ex)
+      {
+        BaseLogger.LogDebug($"StartNotify failed: {ex.Message}");
+      }
     }
 
     public virtual bool Setup()
@@ -266,11 +419,7 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting writer");
       mGattWriter = FindCharacteristic(DEVICE_INTERFACE_SERVICE, DEVICE_INTERFACE_WRITER);
-      if (DebugLogging)
-        BaseLogger.LogDebug($"Getting reader");
-      GattCharacteristic deviceInterfaceNotifier = FindCharacteristic(DEVICE_INTERFACE_SERVICE, DEVICE_INTERFACE_NOTIFIER);
-      // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
-      deviceInterfaceNotifier.Value += (sender, args) => { ReadBytes(args.Value); return Task.CompletedTask; };
+
       bool handshakeSuccess = PerformHandShake();
       if (!handshakeSuccess)
         Console.WriteLine("Failed handshake. Something went wrong in setup");

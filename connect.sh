@@ -59,12 +59,40 @@ sed -i \
 
 echo ""
 
-# ── 3. Power on ───────────────────────────────────────────────────────────────
-echo "[BT] Powering on adapter..."
-bluetoothctl <<EOF >/dev/null 2>&1
+# ── 3. Disable Secure Connections & power on ─────────────────────────────────
+# BlueZ's main.conf SecureConnections=off is unreliable — must use btmgmt while
+# adapter is powered off. Without this, auto-pairing sends the SC flag which the
+# BT 4.0 USB adapter can't fulfill, causing the R10 to disconnect.
+echo "[BT] Configuring adapter (SC off, power on)..."
+
+# Find the hci index for the chosen adapter MAC
+HCI_IDX=""
+for idx in $(ls -d /sys/class/bluetooth/hci* 2>/dev/null | grep -oP 'hci\K\d+'); do
+  ADDR=$(cat /sys/class/bluetooth/hci${idx}/address 2>/dev/null | tr 'a-f' 'A-F')
+  if [[ "$ADDR" == "$ADAPTER_MAC" ]]; then
+    HCI_IDX=$idx
+    break
+  fi
+done
+
+if [[ -n "$HCI_IDX" ]]; then
+  echo "[BT] Adapter is hci${HCI_IDX}"
+  # Must stop bluetoothd, power off, set SC off, power on, restart bluetoothd
+  sudo systemctl stop bluetooth 2>/dev/null
+  sleep 1
+  sudo btmgmt --index "$HCI_IDX" power off 2>/dev/null
+  sudo btmgmt --index "$HCI_IDX" sc off 2>/dev/null
+  sudo btmgmt --index "$HCI_IDX" power on 2>/dev/null
+  sudo systemctl start bluetooth 2>/dev/null
+  sleep 2
+  echo "[BT] SC disabled on hci${HCI_IDX}"
+else
+  echo "[BT] WARNING: Could not find hci index for $ADAPTER_MAC — skipping SC disable"
+  bluetoothctl <<EOF >/dev/null 2>&1
 select $ADAPTER_MAC
 power on
 EOF
+fi
 
 # ── 4. Find R10 by name ───────────────────────────────────────────────────────
 # Look for "Approach R10" in the devices already known to this adapter.
