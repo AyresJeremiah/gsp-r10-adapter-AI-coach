@@ -20,14 +20,8 @@ if [[ ${#ADAPTER_LINES[@]} -eq 0 ]]; then
 fi
 
 ADAPTER_MACS=()
-ADAPTER_LABELS=()
 for line in "${ADAPTER_LINES[@]}"; do
-  mac=$(awk '{print $2}' <<< "$line")
-  name=$(awk '{print $3}' <<< "$line")
-  tag=""
-  grep -q "\[default\]" <<< "$line" && tag=" [default]"
-  ADAPTER_MACS+=("$mac")
-  ADAPTER_LABELS+=("$mac  ($name$tag)")
+  ADAPTER_MACS+=("$(awk '{print $2}' <<< "$line")")
 done
 
 # Read current adapter from settings.json to mark the default
@@ -35,33 +29,27 @@ CURRENT=$(grep -o '"bluetoothAdapterAddress"[[:space:]]*:[[:space:]]*"[^"]*"' \
   "$SCRIPT_DIR/settings.json" 2>/dev/null | grep -o '[A-F0-9:]\{17\}' || true)
 
 # ── 2. Adapter selection ───────────────────────────────────────────────────────
-if [[ ${#ADAPTER_MACS[@]} -eq 1 ]]; then
-  ADAPTER_MAC="${ADAPTER_MACS[0]}"
-  echo "[BT] Only one adapter found: $ADAPTER_MAC"
-else
-  DEFAULT_IDX=1
-  echo "Bluetooth adapters:"
-  for i in "${!ADAPTER_MACS[@]}"; do
-    n=$((i + 1))
-    if [[ "${ADAPTER_MACS[$i]}" == "$CURRENT" ]]; then
-      printf "  > %d) %s  ← current\n" "$n" "${ADAPTER_LABELS[$i]}"
-      DEFAULT_IDX=$n
-    else
-      printf "    %d) %s\n" "$n" "${ADAPTER_LABELS[$i]}"
-    fi
-  done
-  echo ""
-  read -rp "Pick adapter [${DEFAULT_IDX}]: " CHOICE
-  CHOICE="${CHOICE:-$DEFAULT_IDX}"
-
-  if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || (( CHOICE < 1 || CHOICE > ${#ADAPTER_MACS[@]} )); then
-    echo "Invalid choice." >&2
-    exit 1
+DEFAULT_IDX=1
+echo "Bluetooth adapters:"
+for i in "${!ADAPTER_MACS[@]}"; do
+  n=$((i + 1))
+  if [[ "${ADAPTER_MACS[$i]}" == "$CURRENT" ]]; then
+    printf "  > %d) %s  ← current\n" "$n" "${ADAPTER_MACS[$i]}"
+    DEFAULT_IDX=$n
+  else
+    printf "    %d) %s\n" "$n" "${ADAPTER_MACS[$i]}"
   fi
+done
+echo ""
+read -rp "Pick adapter [${DEFAULT_IDX}]: " CHOICE
+CHOICE="${CHOICE:-$DEFAULT_IDX}"
 
-  ADAPTER_MAC="${ADAPTER_MACS[$((CHOICE - 1))]}"
+if ! [[ "$CHOICE" =~ ^[0-9]+$ ]] || (( CHOICE < 1 || CHOICE > ${#ADAPTER_MACS[@]} )); then
+  echo "Invalid choice." >&2
+  exit 1
 fi
 
+ADAPTER_MAC="${ADAPTER_MACS[$((CHOICE - 1))]}"
 echo "[BT] Using adapter: $ADAPTER_MAC"
 
 # Persist the chosen adapter into settings.json so the app uses it

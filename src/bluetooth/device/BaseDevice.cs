@@ -8,6 +8,9 @@ using System.Threading.Tasks;
 using System.Threading;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Reflection;
+using Tmds.DBus;
 
 namespace gspro_r10.bluetooth
 {
@@ -70,6 +73,9 @@ namespace gspro_r10.bluetooth
     private bool mDisposedValue;
     public bool DebugLogging { get; set; } = false;
 
+    // Cached GATT discovery: serviceUUID → { charUUID → charPath }
+    private Dictionary<string, Dictionary<string, string>>? mGattPaths;
+
     public BaseDevice(Device device)
     {
       Device = device;
@@ -80,84 +86,189 @@ namespace gspro_r10.bluetooth
       mMsgProcessingTask = Task.Run(MsgProcessingThread, mCancellationToken.Token);
     }
 
-    // GetServiceAsync waits for a D-Bus InterfacesAdded signal that may never fire if services
-    // were already resolved. Use GetServicesAsync (snapshot) + manual UUID match instead.
-    // GetServicesAsync calls GetManagedObjects which can be slow on Pi; retry a few times.
-    protected IGattService1 FindService(string serviceUUID)
-    {
-      List<string> lastUuids = new();
-      for (int attempt = 0; attempt < 8; attempt++)
-      {
-        if (attempt > 0)
-        {
-          BaseLogger.LogDebug($"FindService retry {attempt}/7 for {serviceUUID}");
-          Thread.Sleep(5000);
-        }
-        try
-        {
-          // Task.Run prevents sync-over-async deadlock: GetServicesAsync uses Tmds.DBus
-          // which posts completions back to the ThreadPool. Blocking that same thread with
-          // GetResult() would deadlock; Task.Run gives it a fresh context.
-          IReadOnlyList<IGattService1>? services = Task.Run(async () =>
-            await Device.GetServicesAsync()).GetAwaiter().GetResult();
-          if (services == null || services.Count == 0) continue;
+    // Linux.Bluetooth's GetServicesAsync and GetCharacteristicAsync both use
+    // Tmds.DBus GetManagedObjects which permanently deadlocks after ConnectAsync
+    // on the Pi. Bypass the library entirely: discover GATT paths via busctl
+    // (which calls the same D-Bus method but on a fresh connection), then create
+    // GattCharacteristic objects from the discovered paths.
 
-          lastUuids = new List<string>();
-          foreach (var svc in services)
-          {
-            try
-            {
-              string uuid = Task.Run(async () => await svc.GetUUIDAsync()).GetAwaiter().GetResult();
-              lastUuids.Add(uuid);
-              if (string.Equals(uuid, serviceUUID, StringComparison.OrdinalIgnoreCase))
-                return svc;
-            }
-            catch { lastUuids.Add("(error)"); }
-          }
-          // Services returned but UUID not found — log and retry
-          BaseLogger.LogDebug($"Available services: [{string.Join(", ", lastUuids)}]");
-        }
-        catch (TimeoutException)
+    /// <summary>
+    /// Discovers all GATT service and characteristic paths + UUIDs via busctl,
+    /// bypassing the Linux.Bluetooth library's deadlocking GetManagedObjects.
+    /// </summary>
+    protected void DiscoverGattTree()
+    {
+      if (mGattPaths != null) return;
+
+      string devicePath = Device.ObjectPath.ToString();
+      if (DebugLogging)
+        BaseLogger.LogDebug($"Discovering GATT tree via busctl for {devicePath}");
+
+      string treeOutput = RunProcess("busctl", "tree org.bluez");
+
+      // Extract all D-Bus object paths under our device
+      var allPaths = treeOutput.Split('\n')
+        .Select(line => {
+          int idx = line.IndexOf('/');
+          return idx >= 0 ? line.Substring(idx).Trim() : "";
+        })
+        .Where(p => p.StartsWith(devicePath + "/"))
+        .ToList();
+
+      mGattPaths = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+      // Find service paths (direct children like serviceXXXX)
+      var servicePaths = allPaths
+        .Where(p => IsDirectChild(devicePath, p, "service"))
+        .ToList();
+
+      foreach (var svcPath in servicePaths)
+      {
+        string svcUuid = ReadBusProperty(svcPath, "org.bluez.GattService1", "UUID");
+        if (string.IsNullOrEmpty(svcUuid)) continue;
+
+        var charMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        // Find characteristic paths under this service
+        var charPaths = allPaths
+          .Where(p => IsDirectChild(svcPath, p, "char"))
+          .ToList();
+
+        foreach (var charPath in charPaths)
         {
-          BaseLogger.LogDebug($"GetServicesAsync timed out on attempt {attempt + 1}/5");
+          string charUuid = ReadBusProperty(charPath, "org.bluez.GattCharacteristic1", "UUID");
+          if (!string.IsNullOrEmpty(charUuid))
+            charMap[charUuid] = charPath;
         }
+
+        mGattPaths[svcUuid] = charMap;
+        if (DebugLogging)
+          BaseLogger.LogDebug($"  Service {svcUuid}: {charMap.Count} characteristics");
       }
-      string available = lastUuids.Count > 0 ? string.Join(", ", lastUuids) : "(none retrieved)";
-      throw new Exception($"Service '{serviceUUID}' not found after 8 attempts. Available: [{available}]");
+
+      if (DebugLogging)
+        BaseLogger.LogDebug($"Discovered {mGattPaths.Count} GATT services");
+    }
+
+    /// <summary>
+    /// Finds a GATT characteristic by service and characteristic UUIDs,
+    /// using the busctl-discovered paths. Returns a GattCharacteristic
+    /// created from the D-Bus object path.
+    /// </summary>
+    protected GattCharacteristic FindCharacteristic(string serviceUUID, string charUUID)
+    {
+      DiscoverGattTree();
+
+      if (!mGattPaths!.TryGetValue(serviceUUID, out var charMap))
+      {
+        string available = string.Join(", ", mGattPaths.Keys);
+        throw new Exception($"Service '{serviceUUID}' not found. Available: [{available}]");
+      }
+
+      if (!charMap.TryGetValue(charUUID, out string? charPath))
+      {
+        string available = string.Join(", ", charMap.Keys);
+        throw new Exception($"Characteristic '{charUUID}' not found in service '{serviceUUID}'. Available: [{available}]");
+      }
+
+      if (DebugLogging)
+        BaseLogger.LogDebug($"Creating GattCharacteristic for {charPath}");
+
+      return CreateGattCharacteristic(charPath);
+    }
+
+    private static Connection? sDbusConnection;
+
+    private GattCharacteristic CreateGattCharacteristic(string objectPath)
+    {
+      // Create a fresh D-Bus system bus connection (once), bypassing the
+      // library's internal connection which deadlocks on GetManagedObjects.
+      if (sDbusConnection == null)
+      {
+        sDbusConnection = new Connection(Address.System);
+        Task.Run(async () => await sDbusConnection.ConnectAsync()).GetAwaiter().GetResult();
+        if (DebugLogging)
+          BaseLogger.LogDebug("Created fresh D-Bus connection for GATT proxies");
+      }
+
+      // Create IGattCharacteristic1 proxy on our fresh connection
+      var proxy = sDbusConnection.CreateProxy<IGattCharacteristic1>(
+        "org.bluez", new ObjectPath(objectPath));
+
+      // Call internal GattCharacteristic.CreateAsync(IGattCharacteristic1 proxy)
+      var createAsync = typeof(GattCharacteristic).GetMethod("CreateAsync",
+        BindingFlags.Static | BindingFlags.NonPublic)!;
+      var task = (Task)createAsync.Invoke(null, new object[] { proxy })!;
+      task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+      return (GattCharacteristic)task.GetType().GetProperty("Result")!.GetValue(task)!;
+    }
+
+    private static FieldInfo? FindFieldOfType(Type type, Type fieldType)
+    {
+      return type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)
+        .FirstOrDefault(f => fieldType.IsAssignableFrom(f.FieldType));
+    }
+
+    private static bool IsDirectChild(string parent, string path, string prefix)
+    {
+      if (!path.StartsWith(parent + "/")) return false;
+      string suffix = path.Substring(parent.Length + 1);
+      return suffix.StartsWith(prefix) && !suffix.Contains('/');
+    }
+
+    private static string RunProcess(string fileName, string arguments)
+    {
+      var psi = new ProcessStartInfo(fileName, arguments)
+      {
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+        UseShellExecute = false,
+        CreateNoWindow = true
+      };
+      using var proc = Process.Start(psi)!;
+      string output = proc.StandardOutput.ReadToEnd();
+      proc.WaitForExit(10000);
+      return output;
+    }
+
+    private static string ReadBusProperty(string objectPath, string iface, string property)
+    {
+      string output = RunProcess("busctl", $"get-property org.bluez {objectPath} {iface} {property}");
+      // Format: s "uuid-value"
+      int start = output.IndexOf('"');
+      int end = output.LastIndexOf('"');
+      if (start >= 0 && end > start)
+        return output.Substring(start + 1, end - start - 1);
+      return "";
     }
 
     public virtual bool Setup()
     {
-      if (DebugLogging)
-        BaseLogger.LogDebug($"Getting device info service");
-      IGattService1 deviceInfoService = FindService(DEVICE_INFO_SERVICE_UUID);
+      DiscoverGattTree();
+
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading serial number");
-      IGattCharacteristic1 serialCharacteristic = Task.Run(async () => await deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      GattCharacteristic serialCharacteristic = FindCharacteristic(DEVICE_INFO_SERVICE_UUID, SERIAL_NUMBER_CHARACTERISTIC_UUID);
       Serial = Encoding.ASCII.GetString(Task.Run(async () => await serialCharacteristic.ReadValueAsync(new Dictionary<string, object>())).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading firmware version");
-      IGattCharacteristic1 firmwareCharacteristic = Task.Run(async () => await deviceInfoService.GetCharacteristicAsync(FIRMWARE_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      GattCharacteristic firmwareCharacteristic = FindCharacteristic(DEVICE_INFO_SERVICE_UUID, FIRMWARE_CHARACTERISTIC_UUID);
       Firmware = Encoding.ASCII.GetString(Task.Run(async () => await firmwareCharacteristic.ReadValueAsync(new Dictionary<string, object>())).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading model name");
-      IGattCharacteristic1 modelCharacteristic = Task.Run(async () => await deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      GattCharacteristic modelCharacteristic = FindCharacteristic(DEVICE_INFO_SERVICE_UUID, MODEL_CHARACTERISTIC_UUID);
       Model = Encoding.ASCII.GetString(Task.Run(async () => await modelCharacteristic.ReadValueAsync(new Dictionary<string, object>())).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading battery life");
-      IGattService1 batteryService = FindService(BATTERY_SERVICE_UUID);
-      GattCharacteristic batteryCharacteristic = (GattCharacteristic)Task.Run(async () => await batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      GattCharacteristic batteryCharacteristic = FindCharacteristic(BATTERY_SERVICE_UUID, BATTERY_CHARACTERISTIC_UUID);
       // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       batteryCharacteristic.Value += (sender, args) => { Battery = args.Value[0]; return Task.CompletedTask; };
       if (DebugLogging)
-        BaseLogger.LogDebug($"Setting up device interface service");
-      IGattService1 deviceInterfaceService = FindService(DEVICE_INTERFACE_SERVICE);
-      if (DebugLogging)
         BaseLogger.LogDebug($"Getting writer");
-      mGattWriter = (GattCharacteristic)Task.Run(async () => await deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_WRITER)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      mGattWriter = FindCharacteristic(DEVICE_INTERFACE_SERVICE, DEVICE_INTERFACE_WRITER);
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting reader");
-      GattCharacteristic deviceInterfaceNotifier = (GattCharacteristic)Task.Run(async () => await deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+      GattCharacteristic deviceInterfaceNotifier = FindCharacteristic(DEVICE_INTERFACE_SERVICE, DEVICE_INTERFACE_NOTIFIER);
       // Subscribe once via Value += (auto-subscribes internally, no explicit StartNotifyAsync needed)
       deviceInterfaceNotifier.Value += (sender, args) => { ReadBytes(args.Value); return Task.CompletedTask; };
       bool handshakeSuccess = PerformHandShake();
@@ -321,7 +432,7 @@ namespace gspro_r10.bluetooth
 
     public IMessage? SendProtobufRequest(IMessage proto)
     {
-      
+
       mProtoResponseResetEvent.Reset();
 
       byte[] bytes = proto.ToByteArray();

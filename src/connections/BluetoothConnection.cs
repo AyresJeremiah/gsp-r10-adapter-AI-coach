@@ -48,28 +48,6 @@ namespace gspro_r10
           return;
         }
 
-        // Ensure device is paired before attempting connection — BlueZ requires explicit pairing
-        // on Linux unlike Windows which handles it transparently on first GATT access.
-        try
-        {
-          bool isPaired = await Task.Run(async () => await Device.GetPairedAsync());
-          if (!isPaired)
-          {
-            BluetoothLogger.Info("Device not paired. Attempting to pair...");
-            await Task.Run(async () => await Device.PairAsync());
-            BluetoothLogger.Info("Pairing complete. Waiting 2s for BlueZ to stabilize...");
-            await Task.Delay(2000);
-          }
-          else
-          {
-            BluetoothLogger.Info("Device is already paired");
-          }
-        }
-        catch (Exception ex)
-        {
-          BluetoothLogger.Error($"Pairing attempt failed (will try to connect anyway): {ex.Message}");
-        }
-
         int attemptNumber = 0;
         bool connected = false;
         do

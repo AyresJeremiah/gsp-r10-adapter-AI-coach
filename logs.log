@@ -1,0 +1,164 @@
+10:02:01.716   Main || GSP - R10 Bridge starting. Press enter key to close
+10:02:01.828  GSPro || Connecting to OpenConnect api (10.10.10.23:921)...
+10:02:01.894 R10-E6 || Server starting at IP: 127.0.1.1 Port: 2483...
+10:02:01.910  GSPro || TCP client connected a new session with Id 05279f47-21ce-497b-9d56-c8047e79d525
+10:02:02.101  GSPro << {"DeviceID":"GSPRO-R10","Units":"Yards","ShotNumber":0,"APIVersion":"1","BallData":null,"ClubData":null,"ShotDataOptions":{"ContainsBallData":false,"ContainsClubData":false,"LaunchMonitorIsReady":false,"LaunchMonitorBallDetected":false,"IsHeartBeat":true}}
+10:02:02.432 R10-BT || Using adapter BC:14:EF:A1:6A:56
+10:02:02.477 R10-BT || Found 1 bluetooth device(s): 'Approach R10' (DD:C1:97:75:9A:F6)
+10:02:02.479 R10-BT || Connection attempt #1
+10:02:02.480 R10-BT || Getting device name...
+10:02:02.483 R10-BT || Checking connected state...
+10:02:02.502 R10-BT || Already connected to Approach R10: /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:02.517 R10-BT || Verifying connected state...
+10:02:04.524 R10-BT || Connected to Launch Monitor
+10:02:04.542  DEBUG || Subscribing to measurement service
+10:02:04.545  DEBUG || FindService attempt 1/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:14.579  DEBUG || GetServicesAsync timed out on attempt 1/8
+10:02:14.580  DEBUG || FindService retry 1/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:19.580  DEBUG || FindService attempt 2/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:29.584  DEBUG || GetServicesAsync timed out on attempt 2/8
+10:02:29.584  DEBUG || FindService retry 2/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:34.584  DEBUG || FindService attempt 3/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:44.588  DEBUG || GetServicesAsync timed out on attempt 3/8
+10:02:44.588  DEBUG || FindService retry 3/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:49.588  DEBUG || FindService attempt 4/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:59.595  DEBUG || GetServicesAsync timed out on attempt 4/8
+10:02:59.596  DEBUG || FindService retry 4/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:04.597  DEBUG || FindService attempt 5/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:14.599  DEBUG || GetServicesAsync timed out on attempt 5/8
+10:02:14.600  DEBUG || FindService retry 5/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:19.600  DEBUG || FindService attempt 6/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:29.601  DEBUG || GetServicesAsync timed out on attempt 6/8
+10:02:29.602  DEBUG || FindService retry 6/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:34.603  DEBUG || FindService attempt 7/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:44.607  DEBUG || GetServicesAsync timed out on attempt 7/8
+10:02:44.608  DEBUG || FindService retry 7/7 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:49.608  DEBUG || FindService attempt 8/8 for 6a4e3400-667b-11e3-949a-0800200c9a66
+10:02:59.611  DEBUG || GetServicesAsync timed out on attempt 8/8
+10:02:59.647 R10-BT XX Bluetooth connection error: System.Exception: Service '6a4e3400-667b-11e3-949a-0800200c9a66' not found after 8 attempts. Available: [(none retrieved)]
+   at gspro_r10.bluetooth.BaseDevice.FindService(String serviceUUID) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/BaseDevice.cs:line 133
+   at gspro_r10.bluetooth.LaunchMonitorDevice.Setup() in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/LaunchMonitorDevice.cs:line 80
+   at gspro_r10.BluetoothConnection.SetupLaunchMonitor(Device device) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/connections/BluetoothConnection.cs:line 159
+   at gspro_r10.BluetoothConnection.ConnectToDevice() in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/connections/BluetoothConnection.cs:line 110
+10:02:26.587   Main || GSP - R10 Bridge starting. Press enter key to close
+10:02:26.722  GSPro || Connecting to OpenConnect api (10.10.10.23:921)...
+10:02:26.798 R10-E6 || Server starting at IP: 127.0.1.1 Port: 2483...
+10:02:26.832  GSPro || TCP client connected a new session with Id aebede74-6aa0-4a86-8897-1c8a0d35eb46
+10:02:27.057  GSPro << {"DeviceID":"GSPRO-R10","Units":"Yards","ShotNumber":0,"APIVersion":"1","BallData":null,"ClubData":null,"ShotDataOptions":{"ContainsBallData":false,"ContainsClubData":false,"LaunchMonitorIsReady":false,"LaunchMonitorBallDetected":false,"IsHeartBeat":true}}
+10:02:27.332 R10-BT || Using adapter BC:14:EF:A1:6A:56
+10:02:27.373 R10-BT || Found 1 bluetooth device(s): 'Approach R10' (DD:C1:97:75:9A:F6)
+10:02:27.375 R10-BT || Connection attempt #1
+10:02:27.375 R10-BT || Getting device name...
+10:02:27.377 R10-BT || Checking connected state...
+10:02:27.397 R10-BT || Already connected to Approach R10: /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:27.402 R10-BT || Verifying connected state...
+10:02:29.409 R10-BT || Connected to Launch Monitor
+10:02:29.428  DEBUG || Discovering GATT tree via busctl for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:29.549  DEBUG ||   Service 00001800-0000-1000-8000-00805f9b34fb: 4 characteristics
+10:02:29.575  DEBUG ||   Service 00001801-0000-1000-8000-00805f9b34fb: 1 characteristics
+10:02:29.693  DEBUG ||   Service 6a4e2800-667b-11e3-949a-0800200c9a66: 7 characteristics
+10:02:29.721  DEBUG ||   Service 0000180f-0000-1000-8000-00805f9b34fb: 1 characteristics
+10:02:29.793  DEBUG ||   Service 0000180a-0000-1000-8000-00805f9b34fb: 4 characteristics
+10:02:29.854  DEBUG ||   Service 6a4e3400-667b-11e3-949a-0800200c9a66: 3 characteristics
+10:02:29.854  DEBUG || Discovered 6 GATT services
+10:02:29.854  DEBUG || Subscribing to measurement characteristic
+10:02:29.856  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service002d/char002e
+10:02:29.860  DEBUG || CreateAsync signature: (Linux.Bluetooth.IGattCharacteristic1 proxy)
+10:02:29.906 R10-BT XX Bluetooth connection error: System.Exception: Unknown CreateAsync parameter type: Linux.Bluetooth.IGattCharacteristic1
+   at gspro_r10.bluetooth.BaseDevice.CreateGattCharacteristic(String objectPath) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/BaseDevice.cs:line 209
+   at gspro_r10.bluetooth.BaseDevice.FindCharacteristic(String serviceUUID, String charUUID) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/BaseDevice.cs:line 176
+   at gspro_r10.bluetooth.LaunchMonitorDevice.Setup() in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/LaunchMonitorDevice.cs:line 82
+   at gspro_r10.BluetoothConnection.SetupLaunchMonitor(Device device) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/connections/BluetoothConnection.cs:line 159
+   at gspro_r10.BluetoothConnection.ConnectToDevice() in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/connections/BluetoothConnection.cs:line 110
+10:02:18.537   Main || GSP - R10 Bridge starting. Press enter key to close
+10:02:18.685  GSPro || Connecting to OpenConnect api (10.10.10.23:921)...
+10:02:18.768 R10-E6 || Server starting at IP: 127.0.1.1 Port: 2483...
+10:02:18.802  GSPro || TCP client connected a new session with Id 3fadcb05-e751-4dd8-b49d-47f0b507ec9b
+10:02:19.072  GSPro << {"DeviceID":"GSPRO-R10","Units":"Yards","ShotNumber":0,"APIVersion":"1","BallData":null,"ClubData":null,"ShotDataOptions":{"ContainsBallData":false,"ContainsClubData":false,"LaunchMonitorIsReady":false,"LaunchMonitorBallDetected":false,"IsHeartBeat":true}}
+10:02:19.449 R10-BT || Using adapter BC:14:EF:A1:6A:56
+10:02:19.498 R10-BT || Found 1 bluetooth device(s): 'Approach R10' (DD:C1:97:75:9A:F6)
+10:02:19.500 R10-BT || Connection attempt #1
+10:02:19.500 R10-BT || Getting device name...
+10:02:19.502 R10-BT || Checking connected state...
+10:02:19.530 R10-BT || Already connected to Approach R10: /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:19.536 R10-BT || Verifying connected state...
+10:02:21.548 R10-BT || Connected to Launch Monitor
+10:02:21.572  DEBUG || Discovering GATT tree via busctl for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:21.747  DEBUG ||   Service 00001800-0000-1000-8000-00805f9b34fb: 4 characteristics
+10:02:21.792  DEBUG ||   Service 00001801-0000-1000-8000-00805f9b34fb: 1 characteristics
+10:02:21.970  DEBUG ||   Service 6a4e2800-667b-11e3-949a-0800200c9a66: 7 characteristics
+10:02:22.014  DEBUG ||   Service 0000180f-0000-1000-8000-00805f9b34fb: 1 characteristics
+10:02:22.134  DEBUG ||   Service 0000180a-0000-1000-8000-00805f9b34fb: 4 characteristics
+10:02:22.235  DEBUG ||   Service 6a4e3400-667b-11e3-949a-0800200c9a66: 3 characteristics
+10:02:22.235  DEBUG || Discovered 6 GATT services
+10:02:22.235  DEBUG || Subscribing to measurement characteristic
+10:02:22.238  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service002d/char002e
+10:02:22.304 R10-BT XX Bluetooth connection error: System.Exception: Cannot find Connection in BlueZManager. Fields: []
+   at gspro_r10.bluetooth.BaseDevice.CreateGattCharacteristic(String objectPath) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/BaseDevice.cs:line 203
+   at gspro_r10.bluetooth.BaseDevice.FindCharacteristic(String serviceUUID, String charUUID) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/BaseDevice.cs:line 176
+   at gspro_r10.bluetooth.LaunchMonitorDevice.Setup() in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/bluetooth/device/LaunchMonitorDevice.cs:line 82
+   at gspro_r10.BluetoothConnection.SetupLaunchMonitor(Device device) in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/connections/BluetoothConnection.cs:line 159
+   at gspro_r10.BluetoothConnection.ConnectToDevice() in /home/jeremiah/repos/gsp-r10-adapter-AI-coach/src/connections/BluetoothConnection.cs:line 110
+10:02:42.613   Main || GSP - R10 Bridge starting. Press enter key to close
+10:02:42.732  GSPro || Connecting to OpenConnect api (10.10.10.23:921)...
+10:02:42.801 R10-E6 || Server starting at IP: 127.0.1.1 Port: 2483...
+10:02:42.814  GSPro || TCP client connected a new session with Id 6c44edb3-331c-4b39-b16b-bfe2890a29e1
+10:02:43.027  GSPro << {"DeviceID":"GSPRO-R10","Units":"Yards","ShotNumber":0,"APIVersion":"1","BallData":null,"ClubData":null,"ShotDataOptions":{"ContainsBallData":false,"ContainsClubData":false,"LaunchMonitorIsReady":false,"LaunchMonitorBallDetected":false,"IsHeartBeat":true}}
+10:02:43.393 R10-BT || Using adapter BC:14:EF:A1:6A:56
+10:02:43.447 R10-BT || Found 1 bluetooth device(s): 'Approach R10' (DD:C1:97:75:9A:F6)
+10:02:43.448 R10-BT || Connection attempt #1
+10:02:43.448 R10-BT || Getting device name...
+10:02:43.451 R10-BT || Checking connected state...
+10:02:43.472 R10-BT || Already connected to Approach R10: /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:43.478 R10-BT || Verifying connected state...
+10:02:45.486 R10-BT || Connected to Launch Monitor
+10:02:45.527  DEBUG || Discovering GATT tree via busctl for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:45.677  DEBUG ||   Service 00001800-0000-1000-8000-00805f9b34fb: 4 characteristics
+10:02:45.710  DEBUG ||   Service 00001801-0000-1000-8000-00805f9b34fb: 1 characteristics
+10:02:45.849  DEBUG ||   Service 6a4e2800-667b-11e3-949a-0800200c9a66: 7 characteristics
+10:02:45.882  DEBUG ||   Service 0000180f-0000-1000-8000-00805f9b34fb: 1 characteristics
+10:02:45.983  DEBUG ||   Service 0000180a-0000-1000-8000-00805f9b34fb: 4 characteristics
+10:02:46.066  DEBUG ||   Service 6a4e3400-667b-11e3-949a-0800200c9a66: 3 characteristics
+10:02:46.066  DEBUG || Discovered 6 GATT services
+10:02:46.066  DEBUG || Subscribing to measurement characteristic
+10:02:46.068  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service002d/char002e
+10:02:46.095  DEBUG || Created fresh D-Bus connection for GATT proxies
+10:02:46.233  DEBUG || Subscribing to control characteristic
+10:02:46.233  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service002d/char0034
+10:02:46.403  DEBUG || Subscribing to status characteristic
+10:02:46.403  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service002d/char0031
+10:02:46.415  DEBUG || Reading serial number
+10:02:46.415  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service0024/char0029
+10:02:46.763  DEBUG || Reading firmware version
+10:02:46.763  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service0024/char002b
+10:02:46.942  DEBUG || Reading model name
+10:02:46.942  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service0024/char0027
+10:02:47.123  DEBUG || Reading battery life
+10:02:47.123  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service0020/char0021
+10:02:47.125  DEBUG || Getting writer
+10:02:47.125  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service000e/char001e
+10:02:47.127  DEBUG || Getting reader
+10:02:47.127  DEBUG || Creating GattCharacteristic for /org/bluez/hci1/dev_DD_C1_97_75_9A_F6/service000e/char001b
+10:02:47.129  DEBUG || Starting handshake
+10:02:47.132  DEBUG ||       <- 000000000000000000010000                 (ble write)
+10:02:47.984 R10-BT || Battery Life Updated: 84%
+Failed handshake. Something went wrong in setup
+10:02:57.137 R10-BT XX Error during base device setup
+10:02:57.138 R10-BT XX Failed Device Setup
+10:02:57.146 R10-BT XX Lost bluetooth connection
+10:02:57.171 R10-BT || Using adapter BC:14:EF:A1:6A:56
+10:02:57.195 R10-BT || Found 1 bluetooth device(s): 'Approach R10' (DD:C1:97:75:9A:F6)
+10:02:57.195 R10-BT || Connection attempt #1
+10:02:57.195 R10-BT || Getting device name...
+10:02:57.198 R10-BT || Checking connected state...
+10:02:57.201 R10-BT || Connecting to Approach R10: /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:57.376 R10-BT || ConnectAsync returned, polling ServicesResolved...
+10:02:58.460 R10-BT || Battery Life Updated: 84%
+10:02:27.525 R10-BT || Verifying connected state...
+10:02:29.533 R10-BT || Could not connect to bluetooth device. Waiting 10 seconds before trying again
+10:02:39.534 R10-BT || Connection attempt #2
+10:02:39.535 R10-BT || Getting device name...
+10:02:39.537 R10-BT || Checking connected state...
+10:02:39.539 R10-BT || Connecting to Approach R10: /org/bluez/hci1/dev_DD_C1_97_75_9A_F6
+10:02:39.765 R10-BT || ConnectAsync returned, polling ServicesResolved...
+10:02:40.940 R10-BT || Battery Life Updated: 84%

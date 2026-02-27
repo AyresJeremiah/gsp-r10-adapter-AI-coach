@@ -10,7 +10,7 @@
   "bluetooth": {
     "enabled": true, //bluetooth enabled
     "bluetoothDeviceName": "Approach R10",
-    "bluetoothDeviceAddress": "DD:C1:97:75:9A:F6", // optional: MAC address (e.g. "DD:C1:97:75:9A:F6"). If set, overrides name-based lookup
+    "bluetoothDeviceAddressTemp": "DD:C1:97:75:9A:F6", // optional: MAC address (e.g. "DD:C1:97:75:9A:F6"). If set, overrides name-based lookup
     "bluetoothAdapterAddress": "BC:14:EF:A1:6A:56", // optional: USB BT dongle MAC — avoids WiFi/BT coexistence issue on Pi's onboard chip
     "reconnectInterval": 10, // seconds
     "sendStatusChangesToGSP": false, // send device readiness updates to gsp (does nothing as of today)

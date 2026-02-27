@@ -75,22 +75,23 @@ namespace gspro_r10.bluetooth
 
     public override bool Setup()
     {
+      DiscoverGattTree();
+
       if (DebugLogging)
-        BaseLogger.LogDebug("Subscribing to measurement service");
-      IGattService1 measService = FindService(MEASUREMENT_SERVICE_UUID);
-      GattCharacteristic measCharacteristic = (GattCharacteristic)Task.Run(async () => await measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+        BaseLogger.LogDebug("Subscribing to measurement characteristic");
+      GattCharacteristic measCharacteristic = FindCharacteristic(MEASUREMENT_SERVICE_UUID, MEASUREMENT_CHARACTERISTIC_UUID);
       // Subscribe once via StartNotifyAsync — no Value handler needed (data unused)
       Task.Run(async () => await measCharacteristic.StartNotifyAsync()).Wait(TimeSpan.FromSeconds(30));
 
       if (DebugLogging)
-        BaseLogger.LogDebug("Subscribing to control service");
-      GattCharacteristic controlPoint = (GattCharacteristic)Task.Run(async () => await measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+        BaseLogger.LogDebug("Subscribing to control characteristic");
+      GattCharacteristic controlPoint = FindCharacteristic(MEASUREMENT_SERVICE_UUID, CONTROL_POINT_CHARACTERISTIC_UUID);
       // Subscribe once via StartNotifyAsync — no Value handler needed (unused for now)
       Task.Run(async () => await controlPoint.StartNotifyAsync()).Wait(TimeSpan.FromSeconds(30));
 
       if (DebugLogging)
-        BaseLogger.LogDebug("Subscribing to status service");
-      GattCharacteristic statusCharacteristic = (GattCharacteristic)Task.Run(async () => await measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID)).WaitAsync(TimeSpan.FromSeconds(30)).GetAwaiter().GetResult()!;
+        BaseLogger.LogDebug("Subscribing to status characteristic");
+      GattCharacteristic statusCharacteristic = FindCharacteristic(MEASUREMENT_SERVICE_UUID, STATUS_CHARACTERISTIC_UUID);
       // Subscribe once via Value += (auto-subscribes internally)
       statusCharacteristic.Value += (sender, args) =>
       {
