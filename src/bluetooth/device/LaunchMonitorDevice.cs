@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using InTheHand.Bluetooth;
+using Linux.Bluetooth;
+using Linux.Bluetooth.Extensions;
 using LaunchMonitor.Proto;
 using static LaunchMonitor.Proto.State.Types;
 using static LaunchMonitor.Proto.SubscribeResponse.Types;
@@ -13,10 +14,10 @@ namespace gspro_r10.bluetooth
 {
   public class LaunchMonitorDevice : BaseDevice
   {
-    internal static Guid MEASUREMENT_SERVICE_UUID = Guid.Parse("6A4E3400-667B-11E3-949A-0800200C9A66");
-    internal static Guid MEASUREMENT_CHARACTERISTIC_UUID = Guid.Parse("6A4E3401-667B-11E3-949A-0800200C9A66");
-    internal static Guid CONTROL_POINT_CHARACTERISTIC_UUID = Guid.Parse("6A4E3402-667B-11E3-949A-0800200C9A66");
-    internal static Guid STATUS_CHARACTERISTIC_UUID = Guid.Parse("6A4E3403-667B-11E3-949A-0800200C9A66");
+    internal static string MEASUREMENT_SERVICE_UUID = "6a4e3400-667b-11e3-949a-0800200c9a66";
+    internal static string MEASUREMENT_CHARACTERISTIC_UUID = "6a4e3401-667b-11e3-949a-0800200c9a66";
+    internal static string CONTROL_POINT_CHARACTERISTIC_UUID = "6a4e3402-667b-11e3-949a-0800200c9a66";
+    internal static string STATUS_CHARACTERISTIC_UUID = "6a4e3403-667b-11e3-949a-0800200c9a66";
 
     private HashSet<uint> ProcessedShotIDs = new HashSet<uint>();
 
@@ -67,51 +68,45 @@ namespace gspro_r10.bluetooth
       public Metrics? Metrics { get; set; }
     }
 
-    public LaunchMonitorDevice(BluetoothDevice device) : base(device)
+    public LaunchMonitorDevice(Device device) : base(device)
     {
 
     }
 
     public override bool Setup()
     {
-      if (DebugLogging)
-        BaseLogger.LogDebug("Subscribing to measurement service");
-      GattService measService = Device.Gatt.GetPrimaryServiceAsync(MEASUREMENT_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      GattCharacteristic measCharacteristic = measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      if (!measCharacteristic.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5)))
-      {
-        BluetoothLogger.Error("Error subscribing to measurement characteristic");
-      }
-
-      // Bytes that come after each shot. No idea how to parse these
-      measCharacteristic.CharacteristicValueChanged += (o, e) => {};
-      if (DebugLogging)
-        BaseLogger.LogDebug("Subscribing to control service");
-      GattCharacteristic controlPoint = measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      if (!controlPoint.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5)))
-      {
-        BluetoothLogger.Error("Error subscribing to the control characteristic");
-      }
-      // Response to waiting device through controlPointInterface. Unused for now
-      controlPoint.CharacteristicValueChanged += (o, e) => { };
+      // Enable device interface notifier FIRST — before any other GATT operations.
+      // On the Pi, calling StartNotify on this characteristic after other
+      // StartNotify/read operations causes BlueZ to hang.
+      SetupDeviceInterfaceNotifier();
 
       if (DebugLogging)
-        BaseLogger.LogDebug("Subscribing to status service");
-      GattCharacteristic statusCharacteristic = measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      if (!statusCharacteristic.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5)))
+        BaseLogger.LogDebug("Subscribing to measurement characteristic");
+      GattCharacteristic measCharacteristic = FindCharacteristic(MEASUREMENT_SERVICE_UUID, MEASUREMENT_CHARACTERISTIC_UUID);
+      // Subscribe once via StartNotifyAsync — no Value handler needed (data unused)
+      Task.Run(async () => await measCharacteristic.StartNotifyAsync()).Wait(TimeSpan.FromSeconds(30));
+
+      if (DebugLogging)
+        BaseLogger.LogDebug("Subscribing to control characteristic");
+      GattCharacteristic controlPoint = FindCharacteristic(MEASUREMENT_SERVICE_UUID, CONTROL_POINT_CHARACTERISTIC_UUID);
+      // Subscribe once via StartNotifyAsync — no Value handler needed (unused for now)
+      Task.Run(async () => await controlPoint.StartNotifyAsync()).Wait(TimeSpan.FromSeconds(30));
+
+      if (DebugLogging)
+        BaseLogger.LogDebug("Subscribing to status characteristic");
+      GattCharacteristic statusCharacteristic = FindCharacteristic(MEASUREMENT_SERVICE_UUID, STATUS_CHARACTERISTIC_UUID);
+      // Subscribe once via Value += (auto-subscribes internally)
+      statusCharacteristic.Value += (sender, args) =>
       {
-        BluetoothLogger.Error("Error subscribing to the status characteristic");
-      }
-      statusCharacteristic.CharacteristicValueChanged += (o, e) =>
-      {
-        bool isAwake = e.Value[1] == (byte)0;
-        bool isReady = e.Value[2] == (byte)0;
+        bool isAwake = args.Value[1] == (byte)0;
+        bool isReady = args.Value[2] == (byte)0;
 
         // the following is unused in favor of the status change notifications and wake control provided by the protobuf service
         // if (!isAwake)
         // {
-        //   controlPoint.WriteValueWithResponseAsync(new byte[] { 0x00 }).Wait();
+        //   controlPoint.WriteValueAsync(new byte[] { 0x00 }, new Dictionary<string, object>()).Wait();
         // }
+        return Task.CompletedTask;
       };
 
 
@@ -123,10 +118,27 @@ namespace gspro_r10.bluetooth
       }
 
 
-      WakeDevice();
-      CurrentState = StatusRequest() ?? StateType.Error;
+      var wakeResult = WakeDevice();
+      if (wakeResult == null)
+        BluetoothLogger.Error("WakeDevice failed (device may already be awake, continuing)");
+
+      var statusResult = StatusRequest();
+      if (statusResult == null)
+      {
+        BluetoothLogger.Error("StatusRequest failed");
+        return false;
+      }
+      CurrentState = statusResult.Value;
+
       DeviceTilt = GetDeviceTilt();
-      SubscribeToAlerts().First();
+
+      var alerts = SubscribeToAlerts();
+      if (alerts.Count == 0)
+      {
+        BluetoothLogger.Error("SubscribeToAlerts returned empty list");
+        return false;
+      }
+      alerts.First();
 
       if (CalibrateTiltOnConnect)
         StartTiltCalibration();

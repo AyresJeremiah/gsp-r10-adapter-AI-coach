@@ -10,11 +10,13 @@
   "bluetooth": {
     "enabled": true, //bluetooth enabled
     "bluetoothDeviceName": "Approach R10",
+    "bluetoothDeviceAddress": "", // optional: MAC address. If set, overrides name-based lookup
+    "bluetoothAdapterAddress": "", // optional: USB BT dongle MAC — avoids WiFi/BT coexistence issue on Pi's onboard chip
     "reconnectInterval": 10, // seconds
     "sendStatusChangesToGSP": false, // send device readiness updates to gsp (does nothing as of today)
     "autoWake": true, // wake device if falls asleep
     "calibrateTiltOnConnect": true, // recalibrate tilt at the start of every session
-    "debugLogging": false,
+    "debugLogging": true,
     "altitude": 0, // feet
     "humidity": 0.5,  // percent (0 - 1)
     "temperature": 60, // fahrenheit 

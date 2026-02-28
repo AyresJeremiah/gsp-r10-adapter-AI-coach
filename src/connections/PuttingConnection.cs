@@ -259,14 +259,17 @@ namespace gspro_r10
 
     private void FocusProcess()
     {
+      if (!OperatingSystem.IsWindows()) return;
       if (PuttingProcess != null)
       {
         IntPtr handle = PuttingProcess.MainWindowHandle;
         if (handle != IntPtr.Zero)
         {
+#pragma warning disable CA1416
           SetWindowPos(handle, HWND_TOPMOST, 0, 0, 0, 0, TOPMOST_FLAGS);
           BringWindowToTop(handle);
           SetForegroundWindow(handle);
+#pragma warning restore CA1416
         }
       }
     }

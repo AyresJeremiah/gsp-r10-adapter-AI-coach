@@ -3,3 +3,4 @@ obj
 .vscode
 ball_tracking
 publish
+logs.log

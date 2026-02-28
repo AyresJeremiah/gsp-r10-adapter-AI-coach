@@ -2,12 +2,10 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net7.0-windows10.0.19041</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>gspro_r10</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ApplicationIcon>icon.ico</ApplicationIcon>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <VersionPrefix>2.1.1</VersionPrefix>
   </PropertyGroup>
 
@@ -18,7 +16,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="7.0.0" />
     <PackageReference Include="NetCoreServer" Version="7.0.0" />
-    <PackageReference Include="InTheHand.BluetoothLE" Version="4.0.33" />
+    <PackageReference Include="Linux.Bluetooth" Version="5.67.1" />
     <PackageReference Include="Google.Protobuf" Version="3.22.1" />
     <PackageReference Include="Grpc.Tools" Version="2.53.0">
       <IncludeAssets>build; buildtransitive</IncludeAssets>
